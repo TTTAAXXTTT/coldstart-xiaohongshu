@@ -1,0 +1,99 @@
+{
+  "business": {
+    "name": "",
+    "offer": "",
+    "audience": "",
+    "facts": "",
+    "keywords": [],
+    "topics": [],
+    "negative_keywords": [
+      "接单",
+      "代做",
+      "欢迎咨询",
+      "招生",
+      "承接项目"
+    ],
+    "search_focus": "custom",
+    "voice": "像同行聊天，先说具体问题和办法，短句，不端着，不用营销口号。不能假装有亲身经历或已服务过客户。"
+  },
+  "ai": {
+    "base_url": "",
+    "model": "",
+    "api_key": "",
+    "calls_per_day": 8,
+    "fallback_base_url": "",
+    "fallback_model": "",
+    "fallback_api_key": "",
+    "analysis_per_run": 8,
+    "max_output_tokens": 8000
+  },
+  "radar": {
+    "xhs_enabled": false,
+    "xhs_url": "http://127.0.0.1:18060",
+    "xhs_token": "",
+    "platforms": [
+      "xiaohongshu"
+    ],
+    "max_queries": 2,
+    "max_results": 10,
+    "max_details": 4,
+    "searches_per_day": 12,
+    "ark_search_enabled": false,
+    "search_mode": "recent",
+    "comments_per_post": 20,
+    "import_per_request": 100
+  },
+  "publishing": {
+    "enabled": false,
+    "channels": [
+      "xiaohongshu"
+    ],
+    "auto_approve": false,
+    "max_posts_per_day": 2,
+    "min_gap_minutes": 120,
+    "slots": [
+      "11:30",
+      "19:30"
+    ],
+    "approvals_per_cycle": 20
+  },
+  "schedule": {
+    "enabled": false,
+    "scan_minutes": 360,
+    "generate_time": "09:00",
+    "topic_cursor": 0
+  },
+  "autonomy": {
+    "enabled": false,
+    "cycle_minutes": 360,
+    "max_pending_drafts": 12,
+    "reply_to_own_comments": false,
+    "replies_per_day": 3,
+    "replies_per_cycle": 3,
+    "notification_items": 20,
+    "generations_per_day": 1
+  },
+  "public": {
+    "own_comments_enabled": false,
+    "enabled": false,
+    "send_enabled": false,
+    "watch_minutes": 5,
+    "search_minutes": 30,
+    "threads_per_round": 5,
+    "discover_per_round": 20,
+    "replies_per_round": 3,
+    "comments_per_day": 10,
+    "replies_per_day": 20,
+    "own_watch_minutes": 5,
+    "own_posts_per_round": 3,
+    "thread_display": 100,
+    "turn_display": 100
+  },
+  "display": {
+    "leads": 150,
+    "drafts": 60,
+    "jobs": 40,
+    "events": 60,
+    "inbox": 30
+  }
+}

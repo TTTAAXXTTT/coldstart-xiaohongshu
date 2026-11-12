@@ -1,0 +1,26 @@
+{
+  "versions": [
+    {
+      "schema": 1,
+      "company": "PythonCore",
+      "tag": "3.12-64",
+      "sort-version": "3.12.10",
+      "executable": ".\\python.exe",
+      "url": "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.zip",
+      "hash": {
+        "sha256": "8649692de846c56a7189d6dae5c322ab20deb1b5908b6f39426b62a36f39415d"
+      }
+    },
+    {
+      "schema": 1,
+      "company": "PythonCore",
+      "tag": "3.12-64",
+      "sort-version": "3.12.9",
+      "executable": ".\\python.exe",
+      "url": "https://www.python.org/ftp/python/3.12.9/python-3.12.9-amd64.zip",
+      "hash": {
+        "sha256": "98a39a6574de37c1d142901c5b923b41081648407f4645ea54098cbacbdbbed3"
+      }
+    }
+  ]
+}

@@ -1,0 +1,100 @@
+{
+  "bundle_version": "0.4.1",
+  "python": "3.12",
+  "pillow": "13.0.0",
+  "xhs_release": "v2.7.3",
+  "xhs_contract_revision": "3b352aa075d63cd5ebae546c9fe7d7d9b81fa7c9",
+  "xhs_contract_blobs": {
+    "routes": "9274e31d3f5b405e58b926f969f662a69c293f88",
+    "service": "dec116d13060bb1564b8038312f3d56dec8cd7da"
+  },
+  "assets": [
+    {
+      "name": "xiaohongshu-login-windows-amd64.exe",
+      "url": "https://github.com/xpzouying/xiaohongshu-mcp/releases/download/v2.7.3/xiaohongshu-login-windows-amd64.exe",
+      "bytes": 11489280,
+      "sha256": "e51d1bea24577dae4da5857dacb35e238d1c531be53e635b676ebe1b633eadda"
+    },
+    {
+      "name": "xiaohongshu-mcp-windows-amd64.exe",
+      "url": "https://github.com/xpzouying/xiaohongshu-mcp/releases/download/v2.7.3/xiaohongshu-mcp-windows-amd64.exe",
+      "bytes": 16396288,
+      "sha256": "e8963ebc3f04b3d54e02a4c51f61e1f47eea426e55b337dc30100f64e752426f"
+    }
+  ],
+  "offline_runtime_included": false,
+  "bootstrap_revision": 3,
+  "python_bootstrap": {
+    "source": "https://www.python.org/ftp/python/index-windows.json",
+    "company": "PythonCore",
+    "tag": "3.12-64",
+    "checksum": "SHA256 pinned from the official Python index",
+    "location": "runtime/python312",
+    "changes_system_path": false,
+    "package": {
+      "schema": 1,
+      "id": "pythoncore-3.12-64",
+      "sort-version": "3.12.10",
+      "company": "PythonCore",
+      "tag": "3.12-64",
+      "install-for": [
+        "3.12.10-64",
+        "3.12-64",
+        "3-64"
+      ],
+      "alias": [
+        {
+          "target": "python.exe",
+          "name": "python3.12.exe"
+        },
+        {
+          "target": "python.exe",
+          "name": "python3.12-64.exe"
+        },
+        {
+          "target": "python.exe",
+          "name": "python3.exe"
+        },
+        {
+          "target": "python.exe",
+          "name": "python3-64.exe"
+        },
+        {
+          "target": "pythonw.exe",
+          "windowed": 1,
+          "name": "pythonw3.12.exe"
+        },
+        {
+          "target": "pythonw.exe",
+          "windowed": 1,
+          "name": "pythonw3.12-64.exe"
+        },
+        {
+          "target": "pythonw.exe",
+          "windowed": 1,
+          "name": "pythonw3.exe"
+        },
+        {
+          "target": "pythonw.exe",
+          "windowed": 1,
+          "name": "pythonw3-64.exe"
+        }
+      ],
+      "display-name": "Python 3.12.10",
+      "executable": ".\\python.exe",
+      "url": "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.zip",
+      "hash": {
+        "sha256": "8649692de846c56a7189d6dae5c322ab20deb1b5908b6f39426b62a36f39415d"
+      }
+    }
+  },
+  "creator_bridge_revision": 7,
+  "creator_bridge_sha256": "c757f9e6359f1ee4e5248b142cc9fd4069f5bcfe6e89727cd5b28c0b8c394e45",
+  "automatic_dependencies": [
+    "Python >=3.11 x64 (private Python 3.12 fallback)",
+    "venv and pip",
+    "Pillow 13.0.0",
+    "pinned Xiaohongshu login and MCP executables",
+    "pinned upstream Chromium browser"
+  ]
+}

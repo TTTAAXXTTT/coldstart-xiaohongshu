@@ -1,0 +1,142 @@
+[
+  {
+    "module": "golang.org/x/sys",
+    "version": "v0.49.0",
+    "notices": [
+      {
+        "file": "golang.org_x_sys-LICENSE",
+        "sha256": "911f8f5782931320f5b8d1160a76365b83aea6447ee6c04fa6d5591467db9dad"
+      }
+    ]
+  },
+  {
+    "module": "github.com/sirupsen/logrus",
+    "version": "v1.9.3",
+    "notices": [
+      {
+        "file": "github.com_sirupsen_logrus-LICENSE",
+        "sha256": "51a0c9ec7f8b7634181b8d4c03e5b5d204ac21d6e72f46c313973424664b2e6b"
+      }
+    ]
+  },
+  {
+    "module": "github.com/ulikunitz/xz",
+    "version": "v0.5.15",
+    "notices": [
+      {
+        "file": "github.com_ulikunitz_xz-LICENSE",
+        "sha256": "701cbcc144a7c865b072f27547e66ddbf17ac44a3bd21f71149ace02518f107c"
+      }
+    ]
+  },
+  {
+    "module": "github.com/go-rod/rod",
+    "version": "v0.116.2",
+    "notices": [
+      {
+        "file": "github.com_go-rod_rod-LICENSE",
+        "sha256": "c1062fb497bca78115c6797bb8629613eaf45ea856b79d187dd2020cef9d327a"
+      }
+    ]
+  },
+  {
+    "module": "github.com/ysmood/gson",
+    "version": "v0.7.3",
+    "notices": [
+      {
+        "file": "github.com_ysmood_gson-LICENSE",
+        "sha256": "884c2ea69c142776a1c27cf3f284f5ecdf8d07b9560722939438d9827cd65416"
+      }
+    ]
+  },
+  {
+    "module": "github.com/ysmood/fetchup",
+    "version": "v0.2.3",
+    "notices": [
+      {
+        "file": "github.com_ysmood_fetchup-LICENSE",
+        "sha256": "08f8534b43ad1d1259b15d7bccd8ab3fc0177985eeea19e2a497e5f89b41ba22"
+      }
+    ]
+  },
+  {
+    "module": "github.com/ysmood/leakless",
+    "version": "v0.9.0",
+    "notices": [
+      {
+        "file": "github.com_ysmood_leakless-LICENSE",
+        "sha256": "c1062fb497bca78115c6797bb8629613eaf45ea856b79d187dd2020cef9d327a"
+      }
+    ]
+  },
+  {
+    "module": "github.com/ysmood/goob",
+    "version": "v0.4.0",
+    "notices": [
+      {
+        "file": "github.com_ysmood_goob-LICENSE",
+        "sha256": "c1062fb497bca78115c6797bb8629613eaf45ea856b79d187dd2020cef9d327a"
+      }
+    ]
+  },
+  {
+    "module": "github.com/ysmood/got",
+    "version": "v0.41.0",
+    "notices": [
+      {
+        "file": "github.com_ysmood_got-LICENSE",
+        "sha256": "884c2ea69c142776a1c27cf3f284f5ecdf8d07b9560722939438d9827cd65416"
+      }
+    ]
+  },
+  {
+    "module": "github.com/go-rod/stealth",
+    "version": "v0.4.9",
+    "notices": [
+      {
+        "file": "github.com_go-rod_stealth-LICENSE",
+        "sha256": "7d5de7f4923f2bfc3c3254539ebf39d76e422875c4bf5747e474b1329d907de6"
+      }
+    ]
+  },
+  {
+    "module": "github.com/xpzouying/headless_browser",
+    "version": "v0.4.0",
+    "notices": [
+      {
+        "file": "github.com_xpzouying_headless_browser-LICENSE",
+        "sha256": "82d3ff6ed6f97047a3a38a11c4a3e0321dc56c7dc01df45397a905b375e0d01c"
+      }
+    ]
+  },
+  {
+    "module": "github.com/pkg/errors",
+    "version": "v0.9.1",
+    "notices": [
+      {
+        "file": "github.com_pkg_errors-LICENSE",
+        "sha256": "8d427fd87bc9579ea368fde3d49f9ca22eac857f91a9dec7e3004bdfab7dee86"
+      }
+    ]
+  },
+  {
+    "module": "github.com/xpzouying/xiaohongshu-mcp",
+    "version": "",
+    "notices": [
+      {
+        "file": "github.com_xpzouying_xiaohongshu-mcp-LICENSE",
+        "sha256": "739259a30251c4bb96b60b0f75a701b8ec31dc37eb61167744060c2cd7a88b80"
+      }
+    ]
+  },
+  {
+    "module": "github.com/avast/retry-go/v4",
+    "version": "v4.7.0",
+    "notices": [
+      {
+        "file": "github.com_avast_retry-go_v4-LICENSE",
+        "sha256": "2fc9e8c374cacc9c0e0c7214911cc2f90f1ade45af2cef646460de278042d930"
+      }
+    ]
+  }
+]

@@ -1,0 +1,19 @@
+{
+  "upstream": "https://github.com/xpzouying/xiaohongshu-mcp",
+  "ref": "v2.7.3",
+  "commit": "3b352aa075d63cd5ebae546c9fe7d7d9b81fa7c9",
+  "go": "1.27.3",
+  "changes": [
+    "creator form authentication instead of cookie-name-only check",
+    "account-bound login/check/publish bridge",
+    "creator origin storage persistence",
+    "headed identity-verification handoff with bounded wait",
+    "safe progress reporting without credential export",
+    "QR and SMS challenge classification with bounded waiting",
+    "account-bound inventory proof before at most one post-verification continuation",
+    "six local-browser handoff regression tests",
+    "install-browser dependency mode before session loading or account navigation",
+    "specific-title absence in two complete inventories after owner identity verification",
+    "read-only selected comment target relationships without source tokens"
+  ]
+}

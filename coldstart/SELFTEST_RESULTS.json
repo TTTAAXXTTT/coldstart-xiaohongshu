@@ -1,0 +1,7 @@
+{
+  "version": "0.4.1",
+  "backend_passed": 287,
+  "frontend_logic_passed": 28,
+  "scope": "synthetic_regressions_only",
+  "real_tests": "not_in_repository"
+}
