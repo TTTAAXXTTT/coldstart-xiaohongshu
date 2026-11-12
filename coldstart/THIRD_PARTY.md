@@ -1,5 +1,8 @@
 # 依赖与来源
 
+> **作者联系方式：QQ 230154231**  
+> 软件交流、问题反馈与功能建议可联系作者。
+
 - 自写工作台代码：MIT，见 `LICENSE`。
 - 小红书服务与创作者会话桥：基于 `xpzouying/xiaohongshu-mcp` v2.7.3，提交 `3b352aa075d63cd5ebae546c9fe7d7d9b81fa7c9`，Apache-2.0；桥接源文件、修改、构建步骤及许可证位于 `tools/creator-bridge`。
 - 桥接可执行文件及小红书服务均按 `tools/sources.lock.json` 的 SHA256 校验。桥接工具的协议版本独立于工作台版本。

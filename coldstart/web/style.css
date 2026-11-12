@@ -3,3 +3,6 @@
 .author-contact{font-weight:700;background:#fff2e7;border:1px solid #d99061;color:#75401f;white-space:nowrap}.author-dialog{width:min(460px,94vw);padding:32px}.author-number{font-size:26px;font-weight:700;color:#75401f;overflow-wrap:anywhere}.author-dialog .actions{margin-bottom:0}.author-dialog form{margin:0}@media(max-width:700px){header{flex-wrap:wrap;gap:14px}.header-right{flex-wrap:wrap;gap:10px}.author-number{font-size:23px}}
 
 .log p{margin:8px 0}summary{cursor:pointer;color:#396e59}.hero .actions button{margin:0}.stats .stat strong{font-size:28px}#lead-filter{min-width:180px}details{margin:12px 0}
+
+/* Persistent software author contact; never inserted into generated content. */
+.author-banner{display:flex;align-items:center;flex-wrap:wrap;gap:8px 20px;padding:14px 18px;margin:0 0 22px;border:2px solid #d6a258;border-radius:10px;background:#fff4dc;color:#65451f}.author-banner strong{font-size:15px}.author-banner span{font-size:20px;font-weight:700;letter-spacing:.3px;user-select:all}.author-banner small{font-size:12px;color:#775c38}footer strong{color:var(--ink)}

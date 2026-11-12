@@ -1,5 +1,8 @@
 # 第三方组件与许可证
 
+> **作者联系方式：QQ 230154231**  
+> 软件交流、问题反馈与功能建议可联系作者。
+
 工作台代码沿用 MIT，见根目录与 coldstart/LICENSE。作者信息见 AUTHORS.md。
 
 - 小红书服务及创作者桥基于 xpzouying/xiaohongshu-mcp v2.7.3，固定提交、改动及构建说明见 tools/creator-bridge/SOURCE.json 和 README.md，许可证为 Apache-2.0。
