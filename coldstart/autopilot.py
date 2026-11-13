@@ -11,6 +11,7 @@ import sales
 import limits
 import own_notes
 import public_policy
+import workflow
 
 
 class SetupRequired(ValueError):
@@ -77,19 +78,29 @@ def run_cycle(w):
     if not config['autonomy']['enabled']:raise SetupRequired('模型自动模式尚未开启')
     steps=[]
     def step(name,action):
-        if w.stop.is_set():raise SetupRequired('程序正在停止')
+        if w.stop.is_set() or w.meta('pause_requested')=='1':
+            w.meta('autonomy_report',dump({'time':now(),'status':'paused','steps':steps}))
+            raise workflow.Suspended('本轮已在步骤之间暂停；已完成的结果保留，等待继续运行')
         try:
-            detail=action();steps.append({'step':name,'status':'done','detail':str(detail)});return True
+            workflow.activity(w,name,'正在执行这一阶段');detail=action();steps.append({'step':name,'status':'done','detail':str(detail)});return True
         except Exception as error:
             steps.append({'step':name,'status':'blocked','detail':w.redact(error)});return False
     if not all(config['ai'][k] for k in ('base_url','model','api_key')):raise SetupRequired('模型凭证尚未配置完整')
-    if config['radar']['xhs_enabled'] or 'xiaohongshu' in config['publishing']['channels']:
-        step('小红书回查与互动',lambda:sync_xhs(w))
-    found=step('公开需求搜索',w.scan)
+    if config['public']['enabled']:
+        # The public engine owns search and comment checks. Content planning must
+        # not perform the same search or repeat the owned-comment sweep.
+        if not config['publishing']['enabled']:
+            return '当前模式只找需求或评论，不自动创作和发布内容'
+        found=True
+        steps.append({'step':'需求与互动','status':'done','detail':'由公开互动流程统一处理，本轮不重复搜索'})
+    else:
+        if config['radar']['xhs_enabled'] or 'xiaohongshu' in config['publishing']['channels']:
+            step('小红书回查与互动',lambda:sync_xhs(w))
+        found=step('公开需求搜索',w.scan)
     with w.db() as db:
         candidates=db.execute("SELECT COUNT(*) FROM leads WHERE platform='xiaohongshu' AND state='candidate' AND analyzed_at='' AND record_type<>'web_citation'").fetchone()[0]
         backlog=db.execute("SELECT COUNT(*) FROM drafts WHERE platform='xiaohongshu' AND state IN ('draft','approved','blocked','publishing')").fetchone()[0]
-    if candidates:step('模型筛选',w.qualify)
+    if candidates and not config['public']['enabled']:step('模型筛选',w.qualify)
     generated=json.loads(w.meta('autonomy_generated_count') or '{}')
     used=generated.get('count',0) if generated.get('day')==now()[:10] else int(w.meta('autonomy_generated_day')==now()[:10])
     due=not limits.exhausted(used,config['autonomy']['generations_per_day'])
@@ -103,7 +114,9 @@ def run_cycle(w):
                     w.meta('autonomy_generated_day',now()[:10])
                     w.meta('autonomy_generated_count',dump({'day':now()[:10],'count':used+1}))
     elif limits.exhausted(backlog,config['autonomy']['max_pending_drafts']):
-        steps.append({'step':'内容生成','status':'blocked','detail':'待处理内容已达上限，停止积压'})
+        steps.append({'step':'内容生成','status':'waiting','detail':'待处理内容已达上限，等待现有稿件处理后再写'})
+    elif not due:
+        steps.append({'step':'内容生成','status':'waiting','detail':'今日自动创作次数已用完，明日恢复；现有排期继续执行'})
     elif not found:
         steps.append({'step':'内容生成','status':'blocked','detail':'信源本轮未通过，保留现有数据，不用模型编造获客结果'})
     if config['publishing']['auto_approve']:
@@ -111,9 +124,9 @@ def run_cycle(w):
     with w.db() as db:
         due_drafts=list(db.execute("SELECT id,scheduled_at FROM drafts WHERE platform='xiaohongshu' AND state='approved' AND scheduled_at<=?",(now(),)))
     if w.config()['publishing']['enabled']:
-        for draft_id,scheduled_at in due_drafts:w.enqueue('publish',{'draft_id':draft_id,'scheduled_at':scheduled_at})
+        for draft_id,scheduled_at in due_drafts:w.enqueue('publish',{'draft_id':draft_id,'scheduled_at':scheduled_at},origin='scheduler')
         steps.append({'step':'到期内容提交','status':'queued','detail':f'{len(due_drafts)}条排队；未来排期由调度器执行'})
-    else:steps.append({'step':'到期内容提交','status':'blocked','detail':'发布总开关关闭'})
+    else:steps.append({'step':'到期内容提交','status':'waiting','detail':'当前未开启发帖，保留稿件'})
     report={'time':now(),'status':'done' if all(s['status']!='blocked' for s in steps) else 'blocked','steps':steps,'real_customer_count':0,'customer_count_note':'本轮自动动作不作为已获得客户或已成交的证据'}
     w.meta('autonomy_report',dump(report))
     return '；'.join(s['step']+'：'+s['detail'] for s in steps)

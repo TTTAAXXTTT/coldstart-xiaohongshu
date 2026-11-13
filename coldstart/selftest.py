@@ -27,6 +27,9 @@ class RecordedResult(unittest.TextTestResult):
     def addFailure(self,test,error):super().addFailure(test,error);self.record(test,'failed',self._exc_info_to_string(error,test))
     def addError(self,test,error):super().addError(test,error);self.record(test,'error',self._exc_info_to_string(error,test))
     def addSkip(self,test,reason):super().addSkip(test,reason);self.record(test,'skipped',reason)
+    def addSubTest(self,test,subtest,error):
+        super().addSubTest(test,subtest,error)
+        if error is not None:self.record(subtest,'failed' if issubclass(error[0],test.failureException) else 'error',self._exc_info_to_string(error,test))
 
 
 def main():

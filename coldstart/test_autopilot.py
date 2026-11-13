@@ -224,7 +224,7 @@ class AutopilotTests(unittest.TestCase):
     def test_cycle_submission_report_uses_current_switch_after_search(self):
         self.configure()
         self.w.meta('autonomy_generated_day',app.now()[:10])
-        for before,after,expected in ((False,True,'queued'),(True,False,'blocked')):
+        for before,after,expected in ((False,True,'queued'),(True,False,'waiting')):
             self.w.save_settings({'publishing':{'enabled':before}})
             def search():
                 self.w.save_settings({'publishing':{'enabled':after}})

@@ -92,6 +92,7 @@ def check_stamp(w,kind):
 def scan(w):
  from app import now,dump,clean
  import autopilot
+ import workflow
  config=w.config();radar=config['radar'];pool=query_pool(config)
  report={'time':now(),'source':'xiaohongshu' if radar['xhs_enabled'] else 'ark_citations','status':'running','queries':[],'returned':0,'new':0,'duplicate':0,'invalid':0,'details_ok':0,'details_failed':0,'comments':0,'errors':[]}
  def save():w.meta('scan_report',dump(report))
@@ -112,6 +113,8 @@ def scan(w):
  queries=[pool[(cursor+i)%len(pool)] for i in range(len(pool) if radar['max_queries']<0 else min(radar['max_queries'],len(pool)))]
  successes=0
  for keyword in queries:
+  if w.stop.is_set() or w.meta('pause_requested')=='1':break
+  workflow.activity(w,'搜索相关需求',f'关键词：{keyword}；本轮第{len(report["queries"])+1}/{len(queries)}个')
   entry={'keyword':keyword,'returned':0,'new':0,'duplicate':0,'status':'running'};report['queries'].append(entry)
   if radar['xhs_enabled']:
    try:
@@ -124,6 +127,7 @@ def scan(w):
     if not isinstance(feeds,list):raise ValueError('搜索结果结构变化')
     successes+=1;entry['status']='done'
     for feed in limits.take(feeds,radar['max_results']):
+     if w.stop.is_set() or w.meta('pause_requested')=='1':break
      card=feed.get('noteCard') or {};fid=str(feed.get('id',''));token=str(feed.get('xsecToken',''))
      if not fid or not card:report['invalid']+=1;continue
      report['returned']+=1;entry['returned']+=1
@@ -134,6 +138,7 @@ def scan(w):
      # Save each usable title before a detail failure, and keep the rest of the batch.
      if (radar['max_details']<0 or report['details_ok']+report['details_failed']<radar['max_details']) and token:
       try:
+       workflow.activity(w,'读取搜索结果的原文',title or '正在核实帖子正文和公开评论')
        detail=w.xhs('/api/v1/feeds/detail',{'feed_id':fid,'xsec_token':token,'load_all_comments':radar['comments_per_post']<0,'comment_config':{'click_more_replies':False,'max_comment_items':radar['comments_per_post'] if radar['comments_per_post']>=0 else 2147483647,'scroll_speed':'slow'}})
        info=detail.get('data') or {};note=info.get('note') or {}
        if not note:raise ValueError('原帖正文暂不可读')
@@ -154,12 +159,15 @@ def scan(w):
    try:
     n=autopilot.ark_search(w,keyword);report['new']+=n;entry['new']+=n;successes+=1;entry['status']='done'
    except Exception as error:entry['status']='failed';report['errors'].append(w.redact(error))
+ if not successes and (w.stop.is_set() or w.meta('pause_requested')=='1'):
+  report.update(status='paused',next_action='搜索已暂停，现有记录保留；继续运行后按计划搜索');save();return report['next_action']
  if not successes:fail('；'.join(report['errors']) or '未完成搜索')
  w.meta('scan_cursor',cursor+len(report['queries']))
- report['status']='partial' if report['errors'] else 'done' if report['returned'] or report['new'] else 'empty'
+ report['status']='paused' if w.stop.is_set() or w.meta('pause_requested')=='1' else 'partial' if report['errors'] else 'done' if report['returned'] or report['new'] else 'empty'
  report['next_action']=('部分原文未读到，已保留可读线索；请测试原帖链接或更换短关键词。' if report['errors'] else '新找到的记录已在“找客户”中；优先看“值得联系”，阅读原文后跟进。' if report['new'] else '已找到帖子，但都是已有记录；可在下方查看原文，或换业务方向/关键词。' if report['duplicate'] else '本轮这些词没有返回帖子。换成客户实际会说的短词，如“Excel 求助”；不要把本轮为空当成市场没有需求。')
  if report['source']=='ark_citations' and not report['new'] and not report['errors']:
   report.update(status='no_verified_sources',next_action='本轮使用豆包联网引用，未取得可核验的小红书来源，没有执行小红书站内搜索。已登录账号时，请启用小红书站内搜索；不能把引用为空当成站内没有帖子。')
+ if w.stop.is_set() or w.meta('pause_requested')=='1':report.update(status='paused',next_action='本轮已暂停，已读到的记录保留；继续运行后恢复搜索')
  save()
  with w.db() as db:pending=db.execute("SELECT COUNT(*) FROM leads WHERE platform='xiaohongshu' AND state='candidate' AND analyzed_at='' AND record_type<>'web_citation'").fetchone()[0]
  if pending and config['ai']['api_key']:w.enqueue('qualify')
@@ -178,9 +186,11 @@ def check(w,kind,lead_id=None):
     if value.get('ok') is not True:raise ValueError('模型没有按约定返回JSON')
     detail='当前模型真实请求成功，能返回工作台需要的JSON；已计入模型用量。'
    else:
-    value=w.llm('你在评论区回答一个Excel问题。'+NATURAL+'只返回JSON对象reply字段。','每天要合并十几张Excel，怎么省点事？',max_tokens=700)
+    value=w.llm('你在评论区回答一个与当前真实业务有关的合成问题。'+NATURAL+'不要把示例当作真实客户或经历；只返回JSON对象reply字段。',dump({'business':w.config()['business'],'synthetic_question':'我刚开始接触这方面，第一步应该先确认什么？'}),max_tokens=700)
     reply=value.get('reply')
     if not isinstance(reply,str) or not 5<=len(reply)<=200:raise ValueError('写作测试没有返回可用的简短回复')
+    import public_policy
+    public_policy.check(reply)
     detail='实际生成样例（尚未发送）：'+reply
   elif kind=='search_check':
    cfg=w.config();words=query_pool(cfg)

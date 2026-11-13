@@ -31,10 +31,11 @@ import own_notes
 import public_engagement
 import public_policy
 import limits
+import workflow
 from limits import exhausted as limits_module_exhausted
 
 ROOT = Path(__file__).resolve().parent
-VERSION = '0.4.1'
+VERSION = '0.5.0'
 CST = timezone(timedelta(hours=8))
 PLATFORMS = {"xiaohongshu": "小红书"}
 DOMAINS = {"xiaohongshu": "xiaohongshu.com"}
@@ -157,6 +158,7 @@ class Workbench:
         self.stop = threading.Event()
         self.initialize()
         public_engagement.initialize(self)
+        workflow.initialize(self)
 
     @contextmanager
     def db(self):
@@ -176,7 +178,7 @@ class Workbench:
                     backup_dir=self.data/'backups'
                     backup_dir.mkdir(exist_ok=True)
                     backup=sqlite3.connect(backup_dir/('before-0.2-'+datetime.now(CST).strftime('%Y%m%d-%H%M%S-%f')+'.sqlite3'))
-                    try: source.backup(backup)
+                    try: source.backup(backup);self._legacy_schema_backup=True
                     finally: backup.close()
         with self.db() as db:
             db.executescript("""
@@ -184,7 +186,7 @@ class Workbench:
                 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS leads(id INTEGER PRIMARY KEY, fingerprint TEXT UNIQUE NOT NULL, platform TEXT NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, excerpt TEXT NOT NULL, author TEXT NOT NULL DEFAULT '', published_at TEXT NOT NULL DEFAULT '', captured_at TEXT NOT NULL, score INTEGER NOT NULL, intent TEXT NOT NULL, evidence TEXT NOT NULL, reason TEXT NOT NULL, reply TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'candidate', note TEXT NOT NULL DEFAULT '');
                 CREATE TABLE IF NOT EXISTS drafts(id INTEGER PRIMARY KEY, platform TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, tags TEXT NOT NULL, cards TEXT NOT NULL, assets TEXT NOT NULL DEFAULT '[]', state TEXT NOT NULL DEFAULT 'draft', generator TEXT NOT NULL, source_ids TEXT NOT NULL DEFAULT '[]', scheduled_at TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, receipt TEXT NOT NULL DEFAULT '', public_url TEXT NOT NULL DEFAULT '');
-                CREATE TABLE IF NOT EXISTS jobs(id INTEGER PRIMARY KEY, kind TEXT NOT NULL, payload TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, message TEXT NOT NULL DEFAULT '');
+                CREATE TABLE IF NOT EXISTS jobs(id INTEGER PRIMARY KEY, kind TEXT NOT NULL, payload TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, message TEXT NOT NULL DEFAULT '', origin TEXT NOT NULL DEFAULT 'manual');
                 CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, time TEXT NOT NULL, level TEXT NOT NULL, message TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS usage(id INTEGER PRIMARY KEY, time TEXT NOT NULL, kind TEXT NOT NULL, tokens INTEGER NOT NULL DEFAULT 0);
                 CREATE TABLE IF NOT EXISTS attempts(id INTEGER PRIMARY KEY, draft_id INTEGER NOT NULL, platform TEXT NOT NULL, started_at TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'started');
@@ -658,7 +660,7 @@ class Workbench:
 
     def preflight(self, row, check_login=True):
         config = self.config()
-        if self.stop.is_set():raise PublishDeferred('程序正在停止，保留排期',(datetime.now(CST)+timedelta(minutes=5)).isoformat(timespec='seconds'))
+        if self.stop.is_set() or self.meta('pause_requested')=='1':raise PublishDeferred('调度正在暂停或停止，保留排期',(datetime.now(CST)+timedelta(minutes=5)).isoformat(timespec='seconds'))
         if not config["publishing"]["enabled"]:
             raise PublishDeferred('发布总开关关闭，保留排期等待恢复',(datetime.now(CST)+timedelta(minutes=1)).isoformat(timespec='seconds'))
         if row["state"] != "approved":
@@ -707,6 +709,7 @@ class Workbench:
             raise PublishSuperseded('原定时发布任务已失效，保留当前稿件和新排期')
 
     def publish(self, draft_id, expected_schedule=None):
+        workflow.activity(self,'检查稿件、账号与提交额度','通过检查后才进入平台提交')
         row=self.draft(draft_id)
         self.check_publish_schedule(row,expected_schedule)
         self.preflight(row)
@@ -749,6 +752,7 @@ class Workbench:
                 staged.append(str(target))
             request_file=snapshot_dir/'request.json'
             request_file.write_text(dump({'title':row['title'],'content':row['body'],'images':staged,'tags':json.loads(row['tags']),'target_binding':row['target_binding']}),encoding='utf-8')
+            workflow.activity(self,'正在平台提交图文','包括素材上传、页面填入及提交核验；请勿重复发布')
             response=self.creator_submit(request_file)
             if not isinstance(response,dict) or response.get('status') not in ('发布完成','发布成功','published','submitted'):
                 raise ValueError('发布响应缺少状态，必须在平台核对是否已经提交')
@@ -774,6 +778,7 @@ class Workbench:
         return receipt
 
     def creator_check(self):
+        workflow.activity(self,'检查创作者平台授权','正在确认当前账号可以进入创作者发布页面')
         host=urllib.parse.urlsplit(self.config()['radar']['xhs_url']).hostname
         if host not in ('127.0.0.1','localhost'):
             raise ValueError('当前创作者授权检查只支持本机小红书适配器')
@@ -875,9 +880,11 @@ class Workbench:
             self.log('info',f"内容 {row['id']}：{receipt}")
             return {'checked_at':proof['checked_at'],'inventory_view':'all','inventory_empty':True}
 
-    def enqueue(self, kind, payload=None):
+    def enqueue(self, kind, payload=None, *, origin='manual'):
+        if origin not in ('manual','scheduler'):raise ValueError('未知任务来源')
         if kind not in ("scan", "qualify", "generate", "publish", "cards", "check", "autopilot", "sync_xhs", "model_check", "writing_check", "source_check", "search_check", "import_own", "process_comments", "link_check", "publish_check", "cards_check", "login", "rewrite", "reply_draft", "public_monitor", "public_scan"):
             raise ValueError("未知任务")
+        if kind=='scan' and self.config()['public']['enabled']:kind='public_scan'
         payload = payload or {}
         if not isinstance(payload, dict):
             raise ValueError("任务参数必须为对象")
@@ -903,10 +910,11 @@ class Workbench:
             if 'topic' in payload:payload['topic']=validate.text(payload['topic'],'选题',200,allow_empty=True)
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
-            existing = db.execute("SELECT id FROM jobs WHERE kind=? AND payload=? AND state IN ('pending','running')", (kind, dump(payload))).fetchone()
+            equivalent=('scan','public_scan') if kind in ('scan','public_scan') else ('public_monitor','process_comments') if self.config()['public']['enabled'] and kind in ('public_monitor','process_comments') else (kind,)
+            existing = db.execute("SELECT id FROM jobs WHERE kind IN ("+','.join('?' for _ in equivalent)+") AND payload=? AND state IN ('pending','running')", (*equivalent, dump(payload))).fetchone()
             if existing:
                 return existing[0]
-            return db.execute("INSERT INTO jobs(kind,payload,created_at,updated_at) VALUES(?,?,?,?)", (kind, dump(payload), now(), now())).lastrowid
+            return db.execute("INSERT INTO jobs(kind,payload,origin,created_at,updated_at) VALUES(?,?,?,?,?)", (kind, dump(payload), origin, now(), now())).lastrowid
 
     def check(self):
         config = self.config()
@@ -955,18 +963,23 @@ class Workbench:
             self.log('info',f"内容 {row['id']}：{receipt}")
 
     def run_one_job(self):
-        if self.stop.is_set():return False
+        if self.stop.is_set() or self.meta('pause_requested')=='1' or self.meta('shutdown_requested')=='1':return False
+        workflow.prune(self)
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
+            if db.execute("SELECT 1 FROM meta WHERE key IN ('pause_requested','shutdown_requested') AND value='1'").fetchone():return False
             job=db.execute("SELECT * FROM jobs WHERE state='pending' ORDER BY id LIMIT 1").fetchone()
             if not job:return False
             db.execute("UPDATE jobs SET state='running',updated_at=? WHERE id=?",(now(),job['id']))
+        self._active_job=dict(job)
+        workflow.activity(self,workflow.LABELS.get(job['kind'],job['kind']),'任务已开始，正在准备')
         payload={}
         try:
             payload=json.loads(job['payload'])
             if job['kind']=='public_monitor':message=public_engagement.cycle(self)
             elif job['kind']=='public_scan':
                 message=self.scan();self.meta('public_scan_at',now())
+                if self.config()['public']['enabled'] and self.meta('pause_requested')!='1' and not self.stop.is_set():public_engagement.discover(self)
             elif job['kind']=='scan':message=self.scan()
             elif job['kind'] in ('model_check','writing_check','source_check','search_check','link_check','publish_check','cards_check','login'):message=sales.check(self,job['kind'],payload.get('lead_id'))
             elif job['kind']=='process_comments' and self.config()['public']['enabled']:message=public_engagement.cycle(self,owned_only=True)
@@ -987,13 +1000,17 @@ class Workbench:
             if job['kind']=='publish' and self.draft(payload['draft_id'])['state'] in ('unknown','submitted_unverified'):state='needs_review'
             if job['kind']=='publish' and self.draft(payload['draft_id'])['state']=='blocked':state='needs_setup'
             if job['kind']=='generate' and json.loads(self.meta('last_generation') or '{}').get('blocked'):state='needs_review'
-            if job['kind']=='scan' and json.loads(self.meta('scan_report') or '{}').get('status') in ('partial','no_verified_sources'):state='needs_review'
+            if job['kind'] in ('scan','public_scan') and json.loads(self.meta('scan_report') or '{}').get('status') in ('partial','no_verified_sources'):state='needs_review'
+            if job['kind'] in ('scan','public_scan') and json.loads(self.meta('scan_report') or '{}').get('status')=='paused':state='pending'
+            if job['kind']=='qualify' and json.loads(self.meta('analysis_progress') or '{}').get('status')=='paused':state='pending'
             if job['kind']=='check':
                 items=json.loads(self.meta('diagnostics'))['items']
                 if any(item['status'] in ('failed','needs_setup') for item in items):state='needs_setup'
             if job['kind']=='autopilot':
                 summary=json.loads(self.meta('autonomy_report') or '{}')
                 if summary.get('status')!='done':state='needs_setup'
+        except workflow.Suspended as error:
+            state,message='pending',str(error)
         except autopilot.SetupRequired as error:
             state,message='needs_setup',str(error)
         except PublishSuperseded as error:
@@ -1006,43 +1023,20 @@ class Workbench:
             state,message='failed',self.redact(error)
             if job['kind']=='publish':
                 with self.db() as db:db.execute("UPDATE drafts SET state='blocked',receipt=?,updated_at=? WHERE id=? AND state='approved'",(message,now(),payload.get('draft_id')))
-        with self.db() as db:db.execute('UPDATE jobs SET state=?,message=?,updated_at=? WHERE id=?',(state,str(message),now(),job['id']))
+        try:
+            with self.db() as db:db.execute('UPDATE jobs SET state=?,message=?,updated_at=? WHERE id=?',(state,str(message),now(),job['id']))
+            workflow.finished(self,job,state)
+        finally:
+            self._active_job=None
         self.log('error' if state=='failed' else 'warning' if state in ('needs_setup','needs_review') else 'info',f"任务 {job['id']} / {job['kind']}：{message}")
         # One explicit analysis request handles one batch, preserving budget for replies and writing.
         return True
 
     def tick(self):
-        config = self.config()
-        if config['public']['enabled']:
-            current_public=datetime.now(CST)
-            for key,kind,minutes in [('public_watch_tick','public_monitor',min(1,config['public']['watch_minutes'])),('public_search_tick','public_scan',config['public']['search_minutes'])]:
-                last=self.meta(key)
-                if not last or (current_public-datetime.fromisoformat(last)).total_seconds()>=minutes*60:
-                    self.enqueue(kind);self.meta(key,now())
-            self.meta('public_worker_heartbeat',now())
-        current = datetime.now(CST)
-        if config['autonomy']['enabled']:
-            last=self.meta('last_autonomy_tick')
-            if not last or current-datetime.fromisoformat(last)>=timedelta(minutes=config['autonomy']['cycle_minutes']):
-                self.enqueue('autopilot')
-                self.meta('last_autonomy_tick',now())
-        elif config["schedule"]["enabled"]:
-            last = self.meta("last_scheduled_scan")
-            if not last or current - datetime.fromisoformat(last) >= timedelta(minutes=config["schedule"]["scan_minutes"]):
-                if config["radar"]["xhs_enabled"] or config['radar']['ark_search_enabled']:
-                    self.enqueue("scan")
-                self.meta("last_scheduled_scan", now())
-            day = current.date().isoformat()
-            if current.strftime("%H:%M") >= config["schedule"]["generate_time"] and self.meta("last_scheduled_generate") != day:
-                self.enqueue("generate")
-                self.meta("last_scheduled_generate", day)
-        if config["publishing"]["enabled"]:
-            with self.db() as db:
-                drafts = db.execute("SELECT id,scheduled_at FROM drafts WHERE platform='xiaohongshu' AND state='approved' AND scheduled_at<=? ORDER BY scheduled_at LIMIT 6", (now(),)).fetchall()
-            for row in drafts:
-                self.enqueue("publish", {"draft_id": row[0],'scheduled_at':row['scheduled_at']})
+        workflow.tick(self)
 
     def worker(self):
+        self._worker_thread=threading.current_thread()
         while not self.stop.is_set():
             try:
                 if self.meta('shutdown_requested')=='1':
@@ -1053,6 +1047,7 @@ class Workbench:
                     continue
                 self.tick()
                 if not self.run_one_job():self.stop.wait(3)
+                else:self.stop.wait(.1)
             except Exception as error:
                 self.log("error", "调度异常：" + self.redact(error))
                 self.stop.wait(5)
@@ -1071,14 +1066,14 @@ class Workbench:
         with self.db() as db:
             leads = [dict(r) for r in db.execute("SELECT * FROM leads WHERE platform='xiaohongshu' ORDER BY score DESC,id DESC LIMIT ?",(config["display"]["leads"],))]
             drafts = [dict(r) for r in db.execute("SELECT * FROM drafts WHERE platform='xiaohongshu' ORDER BY id DESC LIMIT ?",(config["display"]["drafts"],))]
-            jobs = [dict(r) for r in db.execute("SELECT id,kind,state,created_at,updated_at,message FROM jobs ORDER BY id DESC LIMIT ?",(config["display"]["jobs"],))]
+            jobs = [dict(r) for r in db.execute("SELECT id,kind,state,origin,created_at,updated_at,message FROM jobs ORDER BY id DESC LIMIT ?",(config["display"]["jobs"],))]
             events = [dict(r) for r in db.execute("SELECT * FROM events ORDER BY id DESC LIMIT ?",(config["display"]["events"],))]
             stats = {"candidates": db.execute("SELECT COUNT(*) FROM leads WHERE platform='xiaohongshu' AND state='candidate'").fetchone()[0], "verified": db.execute("SELECT COUNT(*) FROM leads WHERE platform='xiaohongshu' AND state IN ('verified','contacted','consulting')").fetchone()[0], "won": db.execute("SELECT COUNT(*) FROM leads WHERE platform='xiaohongshu' AND state='won'").fetchone()[0], "pending": db.execute("SELECT COUNT(*) FROM drafts WHERE platform='xiaohongshu' AND state IN ('draft','approved','blocked')").fetchone()[0], "tokens": db.execute("SELECT COALESCE(SUM(tokens),0) FROM usage WHERE substr(time,1,10)=?", (now()[:10],)).fetchone()[0], "searches": db.execute("SELECT COUNT(*) FROM usage WHERE kind='search' AND substr(time,1,10)=?", (now()[:10],)).fetchone()[0]}
             stats['calls']=db.execute("SELECT COUNT(*) FROM usage WHERE kind='llm' AND substr(time,1,10)=?",(now()[:10],)).fetchone()[0]
         for lead in leads:
             lead['sales_priority']=sales.priority(lead)
             lead['voice_notes']=sales.voice_notes(lead['reply'])
-        return {"public_engagement":public_engagement.state(self),"settings": config, "model_presets": model_api.public_presets(), "sales": sales.state(self), "limit_fields": limits.public(), "analysis_progress":json.loads(self.meta('analysis_progress') or '{}'), "leads": leads, "drafts": drafts, "jobs": jobs, "events": events, "stats": stats, "now": now(),'version':VERSION,'diagnostics':json.loads(self.meta('diagnostics') or '{}'),'xhs_bound_user':self.meta('xhs_bound_user'),'autonomy_report':json.loads(self.meta('autonomy_report') or '{}'),'inbox':self.inbox_state(),'publishing_progress':self.publishing_progress(),'control':{'paused':self.meta('pause_requested')=='1','shutdown_requested':self.meta('shutdown_requested')=='1'}}
+        return {"workflow":workflow.snapshot(self),"public_engagement":public_engagement.state(self),"settings": config, "model_presets": model_api.public_presets(), "sales": sales.state(self), "limit_fields": limits.public(), "analysis_progress":json.loads(self.meta('analysis_progress') or '{}'), "leads": leads, "drafts": drafts, "jobs": jobs, "events": events, "stats": stats, "now": now(),'version':VERSION,'diagnostics':json.loads(self.meta('diagnostics') or '{}'),'xhs_bound_user':self.meta('xhs_bound_user'),'autonomy_report':json.loads(self.meta('autonomy_report') or '{}'),'inbox':self.inbox_state(),'publishing_progress':self.publishing_progress(),'control':{'paused':self.meta('pause_requested')=='1','shutdown_requested':self.meta('shutdown_requested')=='1'}}
 
 
 def make_handler(workbench):
@@ -1158,6 +1153,8 @@ def make_handler(workbench):
                 elif path == '/api/control':
                     if payload.get('action') not in ('pause','resume'):raise ValueError('只支持暂停或继续')
                     workbench.meta('pause_requested','1' if payload['action']=='pause' else '0')
+                elif path == '/api/queue-control':
+                    result.update(workflow.job_control(workbench,payload.get('action'),payload.get('job_id')))
                 elif path == "/api/jobs":
                     result["job_id"] = workbench.enqueue(payload["kind"], payload.get("payload"))
                 elif path == "/api/draft":

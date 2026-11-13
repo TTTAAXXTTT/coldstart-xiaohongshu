@@ -3,7 +3,7 @@ import hashlib,json,tempfile,time
 from pathlib import Path
 from datetime import datetime,timedelta
 from urllib.parse import urlsplit,parse_qs
-import limits,public_policy,public_quality,xhs_session
+import limits,public_policy,public_quality,xhs_session,workflow
 
 def initialize(w):
     with w.db() as db:
@@ -169,12 +169,14 @@ def submit(w,thread,turn,text,data,planned_stamp):
             if not parent:raise ValueError('目标原评论消失，保持未知不发送')
             payload.update(comment_id=target,user_id=parent['user_id']);path+='/reply'
         try:
+            workflow.activity(w,'正在提交公开评论','提交后会独立回查；请勿重复点击')
             w.xhs(path,payload)
         except Exception as error:
             with w.db() as db:db.execute("UPDATE public_turns SET state='unknown',reason=?,updated_at=? WHERE id=? AND state='sending'",(w.redact(error),now(),turn['id']))
             raise
     try:
         with w.db() as db:stored=dict(db.execute('SELECT * FROM public_turns WHERE id=?',(turn['id'],)).fetchone())
+        workflow.activity(w,'核对刚提交的评论','正在原帖确认是否实际出现')
         if not confirm(w,thread,stored,read(w,thread)):raise ValueError('尚未独立回读到唯一评论，保持未知不重发')
     except Exception as error:
         with w.db() as db:db.execute("UPDATE public_turns SET state='unknown',reason=?,updated_at=? WHERE id=? AND state='sending'",(w.redact(error),now(),turn['id']))
@@ -183,6 +185,7 @@ def submit(w,thread,turn,text,data,planned_stamp):
 
 def process_thread(w,thread):
     from app import now
+    workflow.activity(w,'读取公开讨论',thread.get('title',''))
     data=read(w,thread);comments=data['comments'];by_id={c['id']:c for c in comments}
     if data.get('body'):
         thread={**thread,'context':data['body'],'title':data.get('title') or thread['title']}
@@ -231,7 +234,8 @@ def process_thread(w,thread):
     cap=w.config()['public']['replies_per_round']
     with w.db() as db:pending=[dict(r) for r in db.execute("SELECT * FROM public_turns WHERE thread=? AND state IN ('pending','draft') ORDER BY id LIMIT ?",(thread['id'],cap))]
     for turn in pending:
-        if w.stop.is_set():break
+        if w.stop.is_set() or w.meta('pause_requested')=='1':break
+        workflow.activity(w,'分析这条问题并拟回复',thread.get('title',''))
         planned=stamp(w);value=decision(w,thread,turn,comments)
         if value['action']!='reply':
             with w.db() as db:
@@ -259,25 +263,30 @@ def cycle(w,owned_only=False):
     errors=[]
     last=w.meta('public_owned_tick')
     if cfg['own_comments_enabled'] and (owned_only or not last or datetime.fromisoformat(now())-datetime.fromisoformat(last)>=timedelta(minutes=cfg['own_watch_minutes'])):
-        try:discover_owned(w,account)
+        try:
+            workflow.activity(w,'检查本人作品的新评论','逐批轮换检查，不重复给自己发评论')
+            discover_owned(w,account)
         except Exception as error:errors.append(w.redact(error))
         w.meta('public_owned_tick',now())
     owned_clause=' AND owner=?' if owned_only else (' AND owner<>?' if not cfg['own_comments_enabled'] else '')
     args=[account,now()]+([account] if owned_clause else [])+[cfg['threads_per_round']]
     with w.db() as db:threads=[dict(r) for r in db.execute("SELECT * FROM public_threads WHERE account=? AND state='active' AND next_at<=?"+owned_clause+" ORDER BY checked_at,id LIMIT ?",args)]
-    for thread in threads:
-        if w.stop.is_set():break
+    checked=0
+    for index,thread in enumerate(threads,1):
+        if w.stop.is_set() or w.meta('pause_requested')=='1':break
+        workflow.activity(w,f'检查公开讨论 {index}/{len(threads)}',thread.get('title',''))
+        checked+=1
         try:process_thread(w,thread);delay=cfg['watch_minutes'];failures=0
         except Exception as error:
             errors.append(w.redact(error));failures=thread['errors']+1;delay=max(cfg['watch_minutes'],min(60,2**min(failures,6)))
             with w.db() as db:db.execute('UPDATE public_threads SET error=?,errors=? WHERE id=?',(w.redact(error),failures,thread['id']))
         with w.db() as db:db.execute('UPDATE public_threads SET checked_at=?,next_at=? WHERE id=?',(now(),(datetime.fromisoformat(now())+timedelta(minutes=delay)).isoformat(),thread['id']))
-    if not owned_only:discover(w)
+    if not owned_only and not w.stop.is_set() and w.meta('pause_requested')!='1':discover(w)
     w.meta('public_heartbeat',now())
     with w.db() as db:
         unknown=db.execute("SELECT COUNT(*) FROM public_turns p JOIN public_threads t ON t.id=p.thread WHERE t.account=? AND p.state IN ('unknown','sending')",(account,)).fetchone()[0]
-    w.meta('public_report',json.dumps({'time':now(),'status':'needs_review' if errors or unknown else 'done','checked':len(threads),'errors':len(errors),'unknown':unknown}))
-    return f'检查公开讨论{len(threads)}段；异常{len(errors)}段；隔离待核对{unknown}条（仅对应作品，其他作品继续）；私信不读取不发送'+('；'+errors[0] if errors else '')
+    w.meta('public_report',json.dumps({'time':now(),'status':'needs_review' if errors or unknown else 'done','checked':checked,'errors':len(errors),'unknown':unknown}))
+    return f'检查公开讨论{checked}段；异常{len(errors)}段；隔离待核对{unknown}条（仅对应作品，其他作品继续）；私信不读取不发送'+('；'+errors[0] if errors else '')
 
 def control(w,action,thread_id=None):
     if action=='handoff':
@@ -294,6 +303,7 @@ def control(w,action,thread_id=None):
             if probe.get('ok') is not True:raise ValueError('模型连接检查未通过，未开启公开发送')
             if action=='start':w.creator_check()
         w.save_settings({'public':{'enabled':True,'send_enabled':send,'own_comments_enabled':True},'radar':{'xhs_enabled':True},'autonomy':{'enabled':True,'reply_to_own_comments':False},'publishing':{'enabled':action=='start','auto_approve':action=='start'},'schedule':{'enabled':False}})
+        workflow.prune(w)
         w.meta('pause_requested','0')
     elif action=='toggle_owned':w.save_settings({'public':{'own_comments_enabled':not w.config()['public']['own_comments_enabled']}})
     elif action=='pause_all':w.meta('pause_requested','1')

@@ -64,7 +64,7 @@ def analyze(w):
  limit=w.config()['ai']['analysis_per_run'];target=available if limit<0 else min(available,limit);done=0
  w.meta('analysis_progress',dump({'processed':0,'total':target,'status':'running'}))
  try:
-  while done<target and not w.stop.is_set():
+  while done<target and not w.stop.is_set() and w.meta('pause_requested')!='1':
    text=w._qualify_batch(min(8,target-done))
    import re
    match=re.search(r'完成 (\d+)',text);n=int(match[1]) if match else 0
@@ -72,5 +72,5 @@ def analyze(w):
    done+=n;w.meta('analysis_progress',dump({'processed':done,'total':target,'status':'running'}))
  except Exception:
   w.meta('analysis_progress',dump({'processed':done,'total':target,'status':'needs_review'}));raise
- w.meta('analysis_progress',dump({'processed':done,'total':target,'status':'done'}))
+ w.meta('analysis_progress',dump({'processed':done,'total':target,'status':'paused' if done<target and (w.stop.is_set() or w.meta('pause_requested')=='1') else 'done'}))
  return f'完成 {done} 条候选分析；购买意向仍需实际核实'
