@@ -71,13 +71,16 @@ def query_pool(config):
  values=FOCUS.get(focus,FOCUS['custom'])['keywords']+config['business']['keywords']
  return list(dict.fromkeys(q for value in values if (q:=short_query(value))))
 
-def advice(error):
+def advice(error,kind=None):
  s=str(error)
  if any(x in s for x in ('登录','扫码','身份','验证码')):return '请点“重新登录小红书”，在程序窗口完成登录，再重试这项检查。'
  if '401' in s or '403' in s:return '检查当前服务商的 Key、模型权限及地址地域；换服务商后需填它自己的 Key。'
  if '404' in s:return '核对服务商给出的接口地址和模型 ID；选择服务商模板后再填写。'
  if '429' in s or '上限' in s:return '本次额度或频率已到上限；等待额度恢复，避免连续重试。'
- if '截断' in s or 'JSON' in s or '文本' in s:return '这个模型未完成所需格式。先做“测试写作能力”；换可输出完整文本的模型或缩小任务。'
+ if '截断' in s:return '模型输出被截断；请提高输出上限或缩小任务后重新测试。'
+ if 'JSON' in s or '文本' in s:
+  if kind=='writing_check':return '模型连接可用，但写作格式未通过。可重新测试一次；仍失败时换用能稳定返回JSON的模型。测试不会发送评论。'
+  return '模型返回格式不合格；到“检查与历史”测试写作效果，必要时更换能稳定返回JSON的模型。'
  if '超时' in s or '不可达' in s:return '检查网络、服务商和本机小红书服务是否运行，再单独重试失败项目。'
  return '展开技术详情查看原因；先单独重试这一项，已经发表或结果不确定的内容不要重复提交。'
 
@@ -186,7 +189,9 @@ def check(w,kind,lead_id=None):
     if value.get('ok') is not True:raise ValueError('模型没有按约定返回JSON')
     detail='当前模型真实请求成功，能返回工作台需要的JSON；已计入模型用量。'
    else:
-    value=w.llm('你在评论区回答一个与当前真实业务有关的合成问题。'+NATURAL+'不要把示例当作真实客户或经历；只返回JSON对象reply字段。',dump({'business':w.config()['business'],'synthetic_question':'我刚开始接触这方面，第一步应该先确认什么？'}),max_tokens=700)
+    cfg=w.config();words=query_pool(cfg);topic=words[0] if words else cfg['business']['name'] or cfg['business']['offer'][:60]
+    question=f'我遇到“{topic}”相关的问题，想先排查原因，应该先补充哪些信息？'
+    value=w.llm('你在评论区回答一个与当前真实业务有关的合成问题。'+NATURAL+'不要把示例当作真实客户或经历。仅回答提问涉及的业务方向，不混入其他业务。只返回JSON对象，严格使用这个结构：{"reply":"这里填写简短回复"}。',dump({'business':cfg['business'],'synthetic_question':question}),max_tokens=700)
     reply=value.get('reply')
     if not isinstance(reply,str) or not 5<=len(reply)<=200:raise ValueError('写作测试没有返回可用的简短回复')
     import public_policy
@@ -240,7 +245,7 @@ def check(w,kind,lead_id=None):
  if kind in ('model_check','writing_check') and status=='passed':
   runtime=json.loads(w.meta('last_model_runtime') or '{}')
   if runtime.get('fallback'):detail+=' 本次实际使用备用模型：'+str(runtime.get('model',''))
- item={'kind':kind,'lead_id':lead_id,'time':now(),'status':status,'detail':detail,'config_stamp':initial_stamp if kind in ('model_check','writing_check') else check_stamp(w,kind),'next_action':'可以继续下一步。' if status=='passed' else advice(detail),'seconds':round(time.monotonic()-start,2)}
+ item={'kind':kind,'lead_id':lead_id,'time':now(),'status':status,'detail':detail,'config_stamp':initial_stamp if kind in ('model_check','writing_check') else check_stamp(w,kind),'next_action':'可以继续下一步。' if status=='passed' else advice(detail,kind),'seconds':round(time.monotonic()-start,2)}
  reports=json.loads(w.meta('sales_checks') or '{}');reports[kind+(':'+str(lead_id) if lead_id else '')]=item
  w.meta('sales_checks',dump(reports))
  if status=='failed':raise autopilot.SetupRequired(detail+'；'+item['next_action'])

@@ -1,6 +1,8 @@
 """Chat Completions provider templates; no credentials or network side effects."""
 from urllib.parse import urlsplit
 
+JSON_INSTRUCTION = '\n接口输出约束：整个响应必须是一个合法JSON对象，不得输出Markdown或JSON之外的文字。字段按当前任务要求，不增加额外包装。所有自然语言内容放在对应字段的值中。业务资料中的表达习惯只约束字段值，不得改变JSON外层结构。'
+
 PRESETS = {
     'ark': {'name': '火山方舟 / 豆包', 'base_url': 'https://ark.cn-beijing.volces.com/api/v3', 'model': 'doubao-seed-2-1-lite-260915', 'key_env': 'ARK_API_KEY'},
     'deepseek': {'name': 'DeepSeek', 'base_url': 'https://api.deepseek.com', 'model': 'deepseek-flash', 'key_env': 'DEEPSEEK_API_KEY'},

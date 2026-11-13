@@ -1,5 +1,5 @@
 {
-  "version": "0.5.0",
+  "version": "0.5.1",
   "local_test_status": "passed",
   "browser_workflow": {
     "status": "passed",
@@ -42,7 +42,7 @@
   "eight_hour_run_required": false,
   "scope_note": "This version was checked for workflow/state changes. No claim of every live platform scenario or fresh multi-turn visitor reply coverage.",
   "local_regression": {
-    "backend_passed": 325,
+    "backend_passed": 328,
     "backend_failed": 0,
     "backend_errors": 0,
     "backend_skipped": 0,
@@ -62,5 +62,10 @@
     "author_banner_and_dialog": true,
     "no_external_actions": true,
     "installation_scope": "Current Windows environment, available system Python and pre-existing official Chromium cache; not a fresh offline OS."
+  },
+  "writing_json_fix": {
+    "actual_turbo_writing_check_passed": true,
+    "non_json_reproduced_before_fix": true,
+    "no_public_sending": true
   }
 }

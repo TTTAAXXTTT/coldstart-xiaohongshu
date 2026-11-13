@@ -35,7 +35,7 @@ import workflow
 from limits import exhausted as limits_module_exhausted
 
 ROOT = Path(__file__).resolve().parent
-VERSION = '0.5.0'
+VERSION = '0.5.1'
 CST = timezone(timedelta(hours=8))
 PLATFORMS = {"xiaohongshu": "小红书"}
 DOMAINS = {"xiaohongshu": "xiaohongshu.com"}
@@ -335,7 +335,7 @@ class Workbench:
             return {kind:db.execute("INSERT INTO usage(time,kind) VALUES(?,?)", (now(),kind)).lastrowid for kind in limits}
 
     def llm(self, system, content, max_tokens=None, web_search=False, include_response=False):
-        system=system+'\n'+public_policy.PROMPT
+        system=system+'\n'+public_policy.PROMPT+model_api.JSON_INSTRUCTION
         config = self.config()["ai"]
         if max_tokens is None and config['max_output_tokens']==0:
             raise ValueError('普通模型任务输出已设为0，未发起请求；请调整输出设置')
@@ -374,7 +374,7 @@ class Workbench:
             if not isinstance(result,dict):raise ValueError('模型JSON根节点必须是对象')
             return (result,response) if include_response else result
         except (KeyError, IndexError, TypeError, json.JSONDecodeError):
-            raise ValueError("模型未返回约定的 JSON，保留已有数据，不自动重试") from None
+            raise ValueError("模型已响应，但返回内容不是约定的JSON对象；本次结果未保存，已有数据保留，不自动重试") from None
 
     def ingest(self, items, authoritative=False):
         cap=self.config()['radar']['import_per_request']
