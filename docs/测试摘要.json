@@ -1,71 +1,37 @@
 {
-  "version": "0.5.1",
-  "local_test_status": "passed",
-  "browser_workflow": {
-    "status": "passed",
-    "data": "synthetic",
-    "checked": [
-      "author_dialog",
-      "paused_queue",
-      "active_stage",
-      "finishing_then_paused",
-      "edit_survives_refresh",
-      "saved_intervals_and_keywords",
-      "separate_queue_and_history",
-      "cancel_pending",
-      "disclosure_survives_refresh",
-      "select_mode_does_not_apply"
-    ]
-  },
-  "real_checks": [
-    {
-      "check": "configured_model_connection",
-      "status": "passed"
-    },
-    {
-      "check": "existing_account_login_and_binding",
-      "status": "passed"
-    },
-    {
-      "check": "real_search_response",
-      "status": "passed"
-    }
-  ],
-  "upgrade": {
-    "settings_preserved": true,
-    "account_preserved": true,
-    "record_counts_preserved": true,
-    "original_control_state_preserved": true,
-    "schema_backup_created": true
-  },
-  "real_publish_or_comment_sent_this_round": false,
-  "eight_hour_run_required": false,
-  "scope_note": "This version was checked for workflow/state changes. No claim of every live platform scenario or fresh multi-turn visitor reply coverage.",
+  "version": "0.5.2",
   "local_regression": {
-    "backend_passed": 328,
+    "backend_passed": 336,
     "backend_failed": 0,
     "backend_errors": 0,
     "backend_skipped": 0,
     "frontend_passed": 35
   },
-  "clean_installation": {
-    "version": "0.5.0",
-    "archive_installation": true,
-    "empty_recipient_data": true,
-    "automatic_dependency_setup": true,
-    "http_startup": true,
-    "actual_worker_alive": true,
-    "pause_prevents_execution": true,
-    "queue_reason_visible": true,
-    "pending_cancel": true,
-    "resume": true,
-    "author_banner_and_dialog": true,
-    "no_external_actions": true,
-    "installation_scope": "Current Windows environment, available system Python and pre-existing official Chromium cache; not a fresh offline OS."
+  "real_runtime_checks": {
+    "configured_model_connection": "passed",
+    "configured_writing_sample": "passed",
+    "manual_check_during_monitor": "passed",
+    "observed_wait_and_execution_seconds": 25.23,
+    "monitor_yield_then_search": "passed"
   },
-  "writing_json_fix": {
-    "actual_turbo_writing_check_passed": true,
-    "non_json_reproduced_before_fix": true,
-    "no_public_sending": true
+  "browser_interaction": {
+    "tested_version": "0.5.0",
+    "data": "synthetic",
+    "retested_this_version": false
+  },
+  "dedicated_real_public_send_acceptance_this_version": false,
+  "eight_hour_run_required": false,
+  "installation_scope": "Current Windows environment; available Python and official Chromium cache, not a fresh offline OS.",
+  "package_installation": {
+    "version": "0.5.2",
+    "automatic_dependency_installation": "passed",
+    "fresh_archive_startup": "passed",
+    "empty_recipient_data": "passed",
+    "actual_worker_alive": "passed",
+    "pause_cancel_resume": "passed",
+    "cross_origin_rejection": "passed",
+    "graceful_stop": "passed",
+    "scope": "Existing Windows, available system Python and official Chromium cache; no fresh-OS or completely-offline claim.",
+    "dedicated_external_actions": false
   }
 }

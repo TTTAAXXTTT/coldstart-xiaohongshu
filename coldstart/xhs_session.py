@@ -20,7 +20,7 @@ class BeforeSubmission(RuntimeError):
         self.phase=phase
 
 
-def invoke(bound_user='', mode='check', request_file=None, cancel=None, root=None, progress_callback=None):
+def invoke(bound_user='', mode='check', request_file=None, cancel=None, root=None, progress_callback=None, read_timeout=None):
     root = Path(root or ROOT)
     adapter = root/'adapters/xiaohongshu-mcp'
     binary = root/'xhs-session-windows-amd64.exe'
@@ -29,6 +29,9 @@ def invoke(bound_user='', mode='check', request_file=None, cancel=None, root=Non
     if not adapter.is_dir():
         raise ValueError('小红书适配器尚未安装')
     timeout = 1800 if mode == 'publish' else 900 if mode == 'login' else 420 if mode == 'prepare' else 180 if mode=='read-comments' else 75
+    if read_timeout is not None:
+        if mode!='read-comments' or type(read_timeout) is not int or not 15<=read_timeout<=180:raise ValueError('只读评论超时应为15至180秒，不能修改发布等待')
+        timeout=read_timeout
     args = [str(binary), '--mode', mode, '--timeout', str(timeout), '--expected-user', str(bound_user)]
     if request_file is not None:
         args += ['--request-file', str(Path(request_file).resolve())]
@@ -51,6 +54,8 @@ def invoke(bound_user='', mode='check', request_file=None, cancel=None, root=Non
         raise RuntimeError('创作者中心工具未返回有效回执；发布时请先核对结果') from None
     if result.returncode or value.get('main_ok') is not True or (mode!='read-comments' and value.get('creator_ready') is not True):
         detail = str(value.get('detail') or '创作者中心授权检查未通过')[:1000]
+        if mode=='read-comments' and value.get('main_ok') is True:
+            raise RuntimeError(f'原帖评论未能读取（本次读取预算{timeout}秒）；该作品稍后重查，已提交的发送仍需核对')
         if value.get('stage') in ('pre_submit','uploading','editing'):
             raise BeforeSubmission(detail+'；尚未调用最终发布动作',value['stage'])
         raise RuntimeError(detail+'；请核对平台结果后再操作')

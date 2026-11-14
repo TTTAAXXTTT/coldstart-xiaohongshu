@@ -35,7 +35,7 @@ import workflow
 from limits import exhausted as limits_module_exhausted
 
 ROOT = Path(__file__).resolve().parent
-VERSION = '0.5.1'
+VERSION = '0.5.2'
 CST = timezone(timedelta(hours=8))
 PLATFORMS = {"xiaohongshu": "小红书"}
 DOMAINS = {"xiaohongshu": "xiaohongshu.com"}
@@ -113,6 +113,11 @@ def http_json(url, payload=None, token="", timeout=120):
                 raise ValueError("接口响应过大，停止读取")
             return json.loads(raw)
     except urllib.error.HTTPError as error:
+        try:
+            detail=json.loads(error.read(32768));code=(detail.get('error') or {}).get('code')
+        except (ValueError,TypeError,AttributeError,OSError):code=None
+        if code=='AccountOverdueError':
+            raise RuntimeError(f'模型服务账号欠费或余额不足（HTTP {error.code}，AccountOverdueError）；请在服务商控制台处理账单') from None
         raise RuntimeError(f"接口返回 HTTP {error.code}，请检查凭证、权限或额度；没有自动重试") from None
     except (urllib.error.URLError, TimeoutError, OSError):
         raise RuntimeError("接口不可达或请求超时；没有自动重试") from None
@@ -968,7 +973,7 @@ class Workbench:
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
             if db.execute("SELECT 1 FROM meta WHERE key IN ('pause_requested','shutdown_requested') AND value='1'").fetchone():return False
-            job=db.execute("SELECT * FROM jobs WHERE state='pending' ORDER BY id LIMIT 1").fetchone()
+            job=db.execute("SELECT * FROM jobs WHERE state='pending' ORDER BY CASE WHEN origin='manual' THEN 0 ELSE 1 END,id LIMIT 1").fetchone()
             if not job:return False
             db.execute("UPDATE jobs SET state='running',updated_at=? WHERE id=?",(now(),job['id']))
         self._active_job=dict(job)

@@ -29,6 +29,11 @@ class Suspended(RuntimeError):
     """A resumable read/analysis pipeline stopped at a safe step boundary."""
 
 
+def manual_waiting(w):
+    with w.db() as db:
+        return db.execute("SELECT 1 FROM jobs WHERE state='pending' AND origin='manual' LIMIT 1").fetchone() is not None
+
+
 def clock():
     from app import now
     return datetime.fromisoformat(now())
@@ -239,7 +244,7 @@ def snapshot(w):
     with w.db() as db:
         counts = dict(db.execute('SELECT state,COUNT(*) FROM jobs GROUP BY state'))
         running = [dict(r) for r in db.execute("SELECT id,kind,state,origin,payload,updated_at FROM jobs WHERE state='running' ORDER BY id")]
-        pending = [dict(r) for r in db.execute("SELECT id,kind,state,origin,payload,created_at FROM jobs WHERE state='pending' ORDER BY id LIMIT 20")]
+        pending = [dict(r) for r in db.execute("SELECT id,kind,state,origin,payload,created_at FROM jobs WHERE state='pending' ORDER BY CASE WHEN origin='manual' THEN 0 ELSE 1 END,id LIMIT 20")]
         latest = [dict(r) for r in db.execute("SELECT id,kind,state,message,updated_at FROM jobs WHERE state NOT IN ('pending','running') ORDER BY id DESC LIMIT 1")]
         failed = [dict(r) for r in db.execute("SELECT j.id,j.kind,j.message,j.state,j.origin FROM jobs j WHERE j.id IN (SELECT MAX(id) FROM jobs GROUP BY kind) AND j.state IN ('failed','needs_setup','needs_review') ORDER BY j.id DESC LIMIT 4")]
         unknown = db.execute("SELECT COUNT(*) FROM public_turns p JOIN public_threads t ON t.id=p.thread WHERE t.account=? AND p.state='unknown'", (w.meta('xhs_bound_user'),)).fetchone()[0]

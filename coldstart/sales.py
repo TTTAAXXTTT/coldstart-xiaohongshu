@@ -73,6 +73,7 @@ def query_pool(config):
 
 def advice(error,kind=None):
  s=str(error)
+ if '欠费' in s or 'AccountOverdueError' in s:return '到模型服务商控制台处理欠费或余额问题，服务恢复后重新检查模型；也可在业务设置切换到已有可用凭证的模型。'
  if any(x in s for x in ('登录','扫码','身份','验证码')):return '请点“重新登录小红书”，在程序窗口完成登录，再重试这项检查。'
  if '401' in s or '403' in s:return '检查当前服务商的 Key、模型权限及地址地域；换服务商后需填它自己的 Key。'
  if '404' in s:return '核对服务商给出的接口地址和模型 ID；选择服务商模板后再填写。'
@@ -173,7 +174,7 @@ def scan(w):
  if w.stop.is_set() or w.meta('pause_requested')=='1':report.update(status='paused',next_action='本轮已暂停，已读到的记录保留；继续运行后恢复搜索')
  save()
  with w.db() as db:pending=db.execute("SELECT COUNT(*) FROM leads WHERE platform='xiaohongshu' AND state='candidate' AND analyzed_at='' AND record_type<>'web_citation'").fetchone()[0]
- if pending and config['ai']['api_key']:w.enqueue('qualify')
+ if pending and config['ai']['api_key']:w.enqueue('qualify',origin='scheduler' if (getattr(w,'_active_job',None) or {}).get('origin') in workflow.AUTOMATIC else 'manual')
  text=f"新增 {report['new']} 条候选线索；找到帖子 {report['returned']} 篇，已有记录 {report['duplicate']} 条，原文读取失败 {report['details_failed']} 篇"
  if report['source']=='ark_citations':text=f"豆包联网引用：新增 {report['new']} 条候选；未执行小红书站内搜索。"+report['next_action']
  w.log('info',text);return text

@@ -1,5 +1,5 @@
 {
-  "bundle_version": "0.5.1",
+  "bundle_version": "0.5.2",
   "python": "3.12",
   "pillow": "13.0.0",
   "xhs_release": "v2.7.3",
