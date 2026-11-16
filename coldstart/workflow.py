@@ -19,6 +19,7 @@ LABELS = {
     'model_check': '检查模型连接', 'writing_check': '检查写作效果',
     'source_check': '检查小红书账号', 'search_check': '检查搜索接口',
     'link_check': '检查原帖链接', 'publish_check': '检查发稿准备', 'cards_check': '检查图片',
+    'recovery_check': '检测异常是否恢复',
 }
 MODES = {'full': '全自动评论与发帖', 'comments': '只自动评论与回复',
          'observe': '只找需求和分析，不发送', 'manual': '手动操作', 'custom': '原有自定义流程'}
@@ -194,7 +195,7 @@ def tick(w):
 
 
 def finished(w, job, state):
-    if state == 'pending':
+    if state == 'pending' or job['kind']=='recovery_check':
         return
     kind = job['kind']
     w.meta('workflow_finished:' + kind, iso(clock()))
@@ -246,13 +247,11 @@ def snapshot(w):
         running = [dict(r) for r in db.execute("SELECT id,kind,state,origin,payload,updated_at FROM jobs WHERE state='running' ORDER BY id")]
         pending = [dict(r) for r in db.execute("SELECT id,kind,state,origin,payload,created_at FROM jobs WHERE state='pending' ORDER BY CASE WHEN origin='manual' THEN 0 ELSE 1 END,id LIMIT 20")]
         latest = [dict(r) for r in db.execute("SELECT id,kind,state,message,updated_at FROM jobs WHERE state NOT IN ('pending','running') ORDER BY id DESC LIMIT 1")]
-        failed = [dict(r) for r in db.execute("SELECT j.id,j.kind,j.message,j.state,j.origin FROM jobs j WHERE j.id IN (SELECT MAX(id) FROM jobs GROUP BY kind) AND j.state IN ('failed','needs_setup','needs_review') ORDER BY j.id DESC LIMIT 4")]
-        unknown = db.execute("SELECT COUNT(*) FROM public_turns p JOIN public_threads t ON t.id=p.thread WHERE t.account=? AND p.state='unknown'", (w.meta('xhs_bound_user'),)).fetchone()[0]
-        drafts_unknown = db.execute("SELECT COUNT(*) FROM drafts WHERE state IN ('unknown','submitted_unverified') AND platform='xiaohongshu'").fetchone()[0]
         day_usage = dict(db.execute("SELECT kind,COUNT(*) FROM usage WHERE substr(time,1,10)=? GROUP BY kind", (moment.date().isoformat(),)))
         drafts = dict(db.execute("SELECT state,COUNT(*) FROM drafts WHERE platform='xiaohongshu' GROUP BY state"))
         thread_count = db.execute("SELECT COUNT(*) FROM public_threads WHERE account=? AND state='active'", (w.meta('xhs_bound_user'),)).fetchone()[0]
     status, title = ('stopping', '正在结束当前任务') if stopping else ('pausing', '正在收尾，随后暂停') if paused and running else ('paused', '已暂停') if paused else ('running', '正在工作') if running else ('offline', '后台调度未启动') if not alive else ('queued', '准备执行下一项') if pending else ('waiting', '等待下次安排') if plan(w, c) else ('manual', '手动模式，等待操作')
+    if paused and running and running[0]['kind']=='recovery_check':status,title='checking','正在检测异常（自动任务仍暂停）'
     activity_data = json.loads(w.meta('workflow_activity') or '{}')
     active = running[0] if running else None
     if active:
@@ -266,7 +265,7 @@ def snapshot(w):
         active['elapsed_seconds'] = max(0, int((moment - (parse(active['updated_at']) or moment)).total_seconds()))
     for index, row in enumerate(pending, 1):
         row.update(label=LABELS.get(row['kind'], row['kind']), position=index,
-                   wait_reason='已暂停，继续运行后才执行' if paused else '程序正在退出，重启后才执行' if stopping else '后台调度未启动，启动程序后才执行' if not alive and not active else '等待当前任务结束，再按顺序执行' if active else '等待前面的任务执行' if index > 1 else '即将开始')
+                   wait_reason='暂停期间仅执行这项只读检测' if paused and row['kind']=='recovery_check' and row['origin']=='manual' else '已暂停，继续运行后才执行' if paused else '程序正在退出，重启后才执行' if stopping else '后台调度未启动，启动程序后才执行' if not alive and not active else '等待当前任务结束，再按顺序执行' if active else '等待前面的任务执行' if index > 1 else '即将开始')
     steps = plan(w, c)
     for step in steps:
         matches = [r for r in running + pending if r['kind'] == step['kind'] and (step['kind'] != 'publish' or json.loads(r['payload']).get('draft_id') == step['payload']['draft_id'])]
@@ -280,34 +279,16 @@ def snapshot(w):
         step.pop('payload', None)
     for row in running + pending:
         row.pop('payload', None)
-    attention = []
-    if mode(c) != 'manual' and not all(c['ai'][k] for k in ('base_url', 'model', 'api_key')):
-        attention.append({'kind': 'settings', 'title': '模型配置还不完整', 'detail': '到业务设置填写地址、模型名称和 Key。'})
-    if mode(c) != 'manual' and not w.meta('xhs_bound_user'):
-        attention.append({'kind': 'account', 'title': '还没有确认小红书账号', 'detail': '登录后运行账号检查，确认本轮使用的账号。'})
-    if unknown:
-        attention.append({'kind': 'comments', 'title': f'{unknown} 条评论发送结果待核对', 'detail': '仅隔离对应作品；其他作品继续。系统会回查，避免重复评论。'})
-    if drafts_unknown:
-        attention.append({'kind': 'content', 'title': f'{drafts_unknown} 篇内容发布结果待核对', 'detail': '在内容页核对这些稿件；不同内容仍可按排期执行。'})
-    for row in failed:
-        if row['origin'] in AUTOMATIC and not enabled(row['kind'], c):
-            continue
-        if row['kind'] == 'publish' and drafts_unknown or row['kind'] == 'public_monitor' and unknown and not json.loads(w.meta('public_report') or '{}').get('errors'):
-            continue
-        retry = next((s for s in steps if s['kind'] == row['kind']), None)
-        attention.append({'kind': 'check', 'title': LABELS.get(row['kind'], row['kind']) + ('上次有待核对项' if row['state']=='needs_review' else '上次未完成'),
-                          'detail': w.redact(row['message']), 'retry_at': retry['at'] if retry else None})
+    import recovery
+    incidents=recovery.snapshot(w)
+    attention=incidents['active']
     if latest:
         latest[0]['label'] = LABELS.get(latest[0]['kind'], latest[0]['kind'])
-    for section, key, usage_kind, label in (('ai','calls_per_day','llm','模型'),('public','comments_per_day','public_comment','主动评论'),('public','replies_per_day','public_reply','公开续答')):
-        ceiling = c[section][key]
-        if ceiling >= 0 and day_usage.get(usage_kind,0) >= ceiling and mode(c) != 'manual':
-            attention.append({'kind':'settings','title':label+('次数设为0，当前不执行' if ceiling == 0 else '今日用量已用完'),
-                              'detail':'其他可执行的工作继续；可调整用量设置。' if ceiling == 0 else '明日恢复，其他可执行的工作继续；也可在业务设置调整上限。'})
+        latest[0]['recovered']=any(i['id']=='job:'+str(latest[0]['id']) for i in incidents['recovered'])
     return {'status': status, 'title': title, 'mode': mode(c), 'mode_label': MODES[mode(c)],
             'worker_alive': alive, 'paused': paused, 'active': active, 'queue': pending,
             'counts': counts, 'pending_count': counts.get('pending', 0), 'plan': steps,
-            'last_result': latest[0] if latest else None, 'attention': attention,
+            'last_result': latest[0] if latest else None, 'attention': attention, 'recovery': incidents,
             'usage': day_usage, 'draft_counts': drafts, 'active_threads': thread_count,
             'server_time': iso(moment), 'business': {'name': c['business']['name'], 'offer': c['business']['offer'],
             'audience': c['business']['audience'], 'keywords': c['business']['keywords'], 'model': c['ai']['model']},

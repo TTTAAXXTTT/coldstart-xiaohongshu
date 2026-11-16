@@ -93,11 +93,16 @@ def check_stamp(w,kind):
  if kind=='search_check':values.extend([c['radar']['xhs_enabled'],c['radar']['ark_search_enabled'],c['radar']['search_mode'],query_pool(c)])
  return hashlib.sha256(json.dumps(values,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
 
-def scan(w):
+def scan(w,analyze=True,recovery_probe=False):
  from app import now,dump,clean
  import autopilot
  import workflow
+ import recovery
  config=w.config();radar=config['radar'];pool=query_pool(config)
+ health_scope=recovery.scope(w,'scan')
+ if recovery_probe:
+  radar.update(max_queries=1,max_results=3,max_details=3,comments_per_post=0)
+ def stopped():return w.stop.is_set() or w.meta('shutdown_requested')=='1' or (not recovery_probe and w.meta('pause_requested')=='1')
  report={'time':now(),'source':'xiaohongshu' if radar['xhs_enabled'] else 'ark_citations','status':'running','queries':[],'returned':0,'new':0,'duplicate':0,'invalid':0,'details_ok':0,'details_failed':0,'comments':0,'errors':[]}
  def save():w.meta('scan_report',dump(report))
  def fail(error,status='failed'):
@@ -117,7 +122,7 @@ def scan(w):
  queries=[pool[(cursor+i)%len(pool)] for i in range(len(pool) if radar['max_queries']<0 else min(radar['max_queries'],len(pool)))]
  successes=0
  for keyword in queries:
-  if w.stop.is_set() or w.meta('pause_requested')=='1':break
+  if stopped():break
   workflow.activity(w,'搜索相关需求',f'关键词：{keyword}；本轮第{len(report["queries"])+1}/{len(queries)}个')
   entry={'keyword':keyword,'returned':0,'new':0,'duplicate':0,'status':'running'};report['queries'].append(entry)
   if radar['xhs_enabled']:
@@ -131,7 +136,7 @@ def scan(w):
     if not isinstance(feeds,list):raise ValueError('搜索结果结构变化')
     successes+=1;entry['status']='done'
     for feed in limits.take(feeds,radar['max_results']):
-     if w.stop.is_set() or w.meta('pause_requested')=='1':break
+     if stopped():break
      card=feed.get('noteCard') or {};fid=str(feed.get('id',''));token=str(feed.get('xsecToken',''))
      if not fid or not card:report['invalid']+=1;continue
      report['returned']+=1;entry['returned']+=1
@@ -163,18 +168,20 @@ def scan(w):
    try:
     n=autopilot.ark_search(w,keyword);report['new']+=n;entry['new']+=n;successes+=1;entry['status']='done'
    except Exception as error:entry['status']='failed';report['errors'].append(w.redact(error))
- if not successes and (w.stop.is_set() or w.meta('pause_requested')=='1'):
+ if not successes and stopped():
   report.update(status='paused',next_action='搜索已暂停，现有记录保留；继续运行后按计划搜索');save();return report['next_action']
  if not successes:fail('；'.join(report['errors']) or '未完成搜索')
  w.meta('scan_cursor',cursor+len(report['queries']))
- report['status']='paused' if w.stop.is_set() or w.meta('pause_requested')=='1' else 'partial' if report['errors'] else 'done' if report['returned'] or report['new'] else 'empty'
+ report['status']='paused' if stopped() else 'partial' if report['errors'] else 'done' if report['returned'] or report['new'] else 'empty'
  report['next_action']=('部分原文未读到，已保留可读线索；请测试原帖链接或更换短关键词。' if report['errors'] else '新找到的记录已在“找客户”中；优先看“值得联系”，阅读原文后跟进。' if report['new'] else '已找到帖子，但都是已有记录；可在下方查看原文，或换业务方向/关键词。' if report['duplicate'] else '本轮这些词没有返回帖子。换成客户实际会说的短词，如“Excel 求助”；不要把本轮为空当成市场没有需求。')
  if report['source']=='ark_citations' and not report['new'] and not report['errors']:
   report.update(status='no_verified_sources',next_action='本轮使用豆包联网引用，未取得可核验的小红书来源，没有执行小红书站内搜索。已登录账号时，请启用小红书站内搜索；不能把引用为空当成站内没有帖子。')
- if w.stop.is_set() or w.meta('pause_requested')=='1':report.update(status='paused',next_action='本轮已暂停，已读到的记录保留；继续运行后恢复搜索')
+ if stopped():report.update(status='paused',next_action='本轮已暂停，已读到的记录保留；继续运行后恢复搜索')
+ report['config_scope']=health_scope
  save()
+ if report['status'] in ('done','empty'):recovery.record_success(w,'scan',health_scope,'搜索与本轮原文读取已完成')
  with w.db() as db:pending=db.execute("SELECT COUNT(*) FROM leads WHERE platform='xiaohongshu' AND state='candidate' AND analyzed_at='' AND record_type<>'web_citation'").fetchone()[0]
- if pending and config['ai']['api_key']:w.enqueue('qualify',origin='scheduler' if (getattr(w,'_active_job',None) or {}).get('origin') in workflow.AUTOMATIC else 'manual')
+ if analyze and pending and config['ai']['api_key']:w.enqueue('qualify',origin='scheduler' if (getattr(w,'_active_job',None) or {}).get('origin') in workflow.AUTOMATIC else 'manual')
  text=f"新增 {report['new']} 条候选线索；找到帖子 {report['returned']} 篇，已有记录 {report['duplicate']} 条，原文读取失败 {report['details_failed']} 篇"
  if report['source']=='ark_citations':text=f"豆包联网引用：新增 {report['new']} 条候选；未执行小红书站内搜索。"+report['next_action']
  w.log('info',text);return text
@@ -182,17 +189,21 @@ def scan(w):
 def check(w,kind,lead_id=None):
  from app import now,dump
  import autopilot,xhs_session
+ import recovery
+ initial_config=w.config();initial_bound=w.meta('xhs_bound_user')
+ health_cap=recovery.capability({'kind':kind})
+ health_scope=recovery.scope(w,health_cap)
  start=time.monotonic();detail='';status='passed';initial_stamp=check_stamp(w,kind)
  try:
   if kind in ('model_check','writing_check'):
    if kind=='model_check':
-    value=w.llm('只输出JSON对象{"ok":true}。','测试模型是否能按要求返回完整JSON',max_tokens=512)
+    value=w.llm('只输出JSON对象{"ok":true}。','测试模型是否能按要求返回完整JSON',max_tokens=512,health_success=False)
     if value.get('ok') is not True:raise ValueError('模型没有按约定返回JSON')
     detail='当前模型真实请求成功，能返回工作台需要的JSON；已计入模型用量。'
    else:
     cfg=w.config();words=query_pool(cfg);topic=words[0] if words else cfg['business']['name'] or cfg['business']['offer'][:60]
     question=f'我遇到“{topic}”相关的问题，想先排查原因，应该先补充哪些信息？'
-    value=w.llm('你在评论区回答一个与当前真实业务有关的合成问题。'+NATURAL+'不要把示例当作真实客户或经历。仅回答提问涉及的业务方向，不混入其他业务。只返回JSON对象，严格使用这个结构：{"reply":"这里填写简短回复"}。',dump({'business':cfg['business'],'synthetic_question':question}),max_tokens=700)
+    value=w.llm('你在评论区回答一个与当前真实业务有关的合成问题。'+NATURAL+'不要把示例当作真实客户或经历。仅回答提问涉及的业务方向，不混入其他业务。只返回JSON对象，严格使用这个结构：{"reply":"这里填写简短回复"}。',dump({'business':cfg['business'],'synthetic_question':question}),max_tokens=700,health_success=False)
     reply=value.get('reply')
     if not isinstance(reply,str) or not 5<=len(reply)<=200:raise ValueError('写作测试没有返回可用的简短回复')
     import public_policy
@@ -240,6 +251,7 @@ def check(w,kind,lead_id=None):
    with w.operation_lock:xhs_session.invoke(w.meta('xhs_bound_user'),mode='login',cancel=w.stop)
    autopilot.current_xhs_account(w);detail='主站和创作者登录已完成，请重新测试搜索。'
   else:raise ValueError('未知检查项目')
+  if w.config()!=initial_config or (initial_bound and w.meta('xhs_bound_user')!=initial_bound):raise ValueError('检测期间配置或绑定账号发生变化，请按新配置重新检测')
  except Exception as error:status='failed';detail=w.redact(error)
  finally:
   if kind=='login':w.meta('sales_login','finished')
@@ -250,6 +262,8 @@ def check(w,kind,lead_id=None):
  reports=json.loads(w.meta('sales_checks') or '{}');reports[kind+(':'+str(lead_id) if lead_id else '')]=item
  w.meta('sales_checks',dump(reports))
  if status=='failed':raise autopilot.SetupRequired(detail+'；'+item['next_action'])
+ if health_cap and not (kind in ('model_check','writing_check') and runtime.get('fallback')):
+  recovery.record_success(w,health_cap,health_scope,'专项检查已通过')
  return detail
 
 def rewrite(w,draft_id):
@@ -294,4 +308,8 @@ def state(w):
  checks=list(json.loads(w.meta('sales_checks') or '{}').values())
  for item in checks:
   if item.get('config_stamp')!=check_stamp(w,item['kind']):item.update(status='stale',next_action='相关模型、业务或账号配置已改变，请重新检查；旧结果不代表当前可用。')
+  elif item.get('status')=='failed':
+   import recovery
+   proof=recovery.recovered_check(w,item)
+   if proof:item.update(status='recovered',next_action='后续检查已经通过，旧失败只作为历史记录。',recovered_at=proof['time'])
  return {'scan':json.loads(w.meta('scan_report') or '{}'),'checks':checks,'focuses':[{'id':k,**v} for k,v in FOCUS.items()],'priority':priority_count,'followup':followup,'record_total':total,'login_waiting':w.meta('sales_login')=='waiting'}

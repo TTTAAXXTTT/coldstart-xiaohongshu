@@ -1,37 +1,64 @@
 {
-  "version": "0.5.2",
-  "local_regression": {
-    "backend_passed": 336,
-    "backend_failed": 0,
-    "backend_errors": 0,
-    "backend_skipped": 0,
-    "frontend_passed": 35
+  "version": "0.5.3",
+  "backend_tests": {
+    "passed": 360,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0
   },
-  "real_runtime_checks": {
-    "configured_model_connection": "passed",
-    "configured_writing_sample": "passed",
-    "manual_check_during_monitor": "passed",
-    "observed_wait_and_execution_seconds": 25.23,
-    "monitor_yield_then_search": "passed"
+  "frontend_logic": {
+    "passed": 40
   },
-  "browser_interaction": {
-    "tested_version": "0.5.0",
-    "data": "synthetic",
-    "retested_this_version": false
-  },
-  "dedicated_real_public_send_acceptance_this_version": false,
-  "eight_hour_run_required": false,
-  "installation_scope": "Current Windows environment; available Python and official Chromium cache, not a fresh offline OS.",
-  "package_installation": {
-    "version": "0.5.2",
-    "automatic_dependency_installation": "passed",
+  "new_backend_recovery_cases": 24,
+  "new_frontend_recovery_cases": 5,
+  "real_public_sending_this_round": false,
+  "all_platform_scenarios_verified": false,
+  "author_qq": "230154231",
+  "package_startup": {
+    "version": "0.5.3",
+    "runtime_used": "Existing installed Python and Pillow; dependency installer unchanged this release",
     "fresh_archive_startup": "passed",
     "empty_recipient_data": "passed",
     "actual_worker_alive": "passed",
     "pause_cancel_resume": "passed",
+    "manual_recovery_while_paused": "passed",
+    "ordinary_jobs_not_started": "passed",
     "cross_origin_rejection": "passed",
     "graceful_stop": "passed",
     "scope": "Existing Windows, available system Python and official Chromium cache; no fresh-OS or completely-offline claim.",
     "dedicated_external_actions": false
+  },
+  "real_readonly_recovery": {
+    "version": "0.5.3",
+    "old_login_alert_closed": true,
+    "old_publish_alert_closed": true,
+    "manual_recheck_completed_while_paused": true,
+    "paused_preserved": true,
+    "settings_and_account_preserved": true,
+    "new_model_search_send_usage": 0,
+    "new_publish_attempts": 0,
+    "unknown_comment_count_remaining": 2,
+    "unread_thread_count_before": 2,
+    "unread_thread_count_after": 1,
+    "network_probe_scope": "existing account and native comment readback only",
+    "last_check": {
+      "time": "2026-11-16T12:23:13+08:00",
+      "checked": 2,
+      "resolved": 0,
+      "remaining": 2,
+      "status": "needs_review",
+      "results": [
+        {
+          "action": "verify_comments",
+          "status": "checked",
+          "detail": "只读检查2段讨论，确认0条既有发送，0段仍未读到；未执行新发送"
+        },
+        {
+          "action": "verify_threads",
+          "status": "checked",
+          "detail": "只读检查1段讨论，确认0条既有发送，1段仍未读到；未执行新发送"
+        }
+      ]
+    }
   }
 }

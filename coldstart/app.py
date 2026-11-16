@@ -32,10 +32,11 @@ import public_engagement
 import public_policy
 import limits
 import workflow
+import recovery
 from limits import exhausted as limits_module_exhausted
 
 ROOT = Path(__file__).resolve().parent
-VERSION = '0.5.2'
+VERSION = '0.5.3'
 CST = timezone(timedelta(hours=8))
 PLATFORMS = {"xiaohongshu": "小红书"}
 DOMAINS = {"xiaohongshu": "xiaohongshu.com"}
@@ -339,7 +340,8 @@ class Workbench:
                 if limits_module_exhausted(count,limit):raise ValueError("今日调用次数已达到设置上限，已停止本次调用")
             return {kind:db.execute("INSERT INTO usage(time,kind) VALUES(?,?)", (now(),kind)).lastrowid for kind in limits}
 
-    def llm(self, system, content, max_tokens=None, web_search=False, include_response=False):
+    def llm(self, system, content, max_tokens=None, web_search=False, include_response=False, health_success=True):
+        initial_health_scope=recovery.scope(self,'model')
         system=system+'\n'+public_policy.PROMPT+model_api.JSON_INSTRUCTION
         config = self.config()["ai"]
         if max_tokens is None and config['max_output_tokens']==0:
@@ -377,6 +379,7 @@ class Workbench:
             value = re.sub(r"^```(?:json)?\s*|\s*```$", "", str(value).strip())
             result=json.loads(value)
             if not isinstance(result,dict):raise ValueError('模型JSON根节点必须是对象')
+            if health_success and not used_fallback:recovery.record_success(self,'model',initial_health_scope,'当前主模型已返回完整JSON')
             return (result,response) if include_response else result
         except (KeyError, IndexError, TypeError, json.JSONDecodeError):
             raise ValueError("模型已响应，但返回内容不是约定的JSON对象；本次结果未保存，已有数据保留，不自动重试") from None
@@ -783,12 +786,14 @@ class Workbench:
         return receipt
 
     def creator_check(self):
+        initial_health_scope=recovery.scope(self,'creator')
         workflow.activity(self,'检查创作者平台授权','正在确认当前账号可以进入创作者发布页面')
         host=urllib.parse.urlsplit(self.config()['radar']['xhs_url']).hostname
         if host not in ('127.0.0.1','localhost'):
             raise ValueError('当前创作者授权检查只支持本机小红书适配器')
         report=xhs_session.invoke(self.meta('xhs_bound_user'),cancel=self.stop)
         self.meta('creator_diagnostics',dump(report))
+        recovery.record_success(self,'creator',initial_health_scope,'创作者发布表单检查已通过')
         return report
 
     def creator_submit(self, request_file):
@@ -887,12 +892,16 @@ class Workbench:
 
     def enqueue(self, kind, payload=None, *, origin='manual'):
         if origin not in ('manual','scheduler'):raise ValueError('未知任务来源')
-        if kind not in ("scan", "qualify", "generate", "publish", "cards", "check", "autopilot", "sync_xhs", "model_check", "writing_check", "source_check", "search_check", "import_own", "process_comments", "link_check", "publish_check", "cards_check", "login", "rewrite", "reply_draft", "public_monitor", "public_scan"):
+        if kind not in ("scan", "qualify", "generate", "publish", "cards", "check", "autopilot", "sync_xhs", "model_check", "writing_check", "source_check", "search_check", "import_own", "process_comments", "link_check", "publish_check", "cards_check", "login", "rewrite", "reply_draft", "public_monitor", "public_scan", "recovery_check"):
             raise ValueError("未知任务")
         if kind=='scan' and self.config()['public']['enabled']:kind='public_scan'
         payload = payload or {}
         if not isinstance(payload, dict):
             raise ValueError("任务参数必须为对象")
+        if kind=='recovery_check':
+            issue=payload.get('issue_id','all')
+            if not isinstance(issue,str) or not re.fullmatch(r'all|(?:job:[1-9]\d*|(?:results|config|source|quota):[a-z_]+)',issue):raise ValueError('异常编号无效')
+            payload={'issue_id':issue}
         if kind=='import_own':
             feed_id=validate.text(payload.get('feed_id'),'本人作品编号',80)
             if not re.fullmatch(r'[a-zA-Z0-9_-]+',feed_id):raise ValueError('作品编号格式错误')
@@ -967,13 +976,15 @@ class Workbench:
                 db.execute('UPDATE attempts SET state=? WHERE draft_id=? AND state IN (\'unknown\',\'submitted_unverified\')',('confirmed_absent' if state=='draft' else 'confirmed_published',row['id']))
             self.log('info',f"内容 {row['id']}：{receipt}")
 
-    def run_one_job(self):
-        if self.stop.is_set() or self.meta('pause_requested')=='1' or self.meta('shutdown_requested')=='1':return False
+    def run_one_job(self, recovery_only=False):
+        if self.stop.is_set() or (self.meta('pause_requested')=='1' and not recovery_only) or self.meta('shutdown_requested')=='1':return False
         workflow.prune(self)
         with self.db() as db:
             db.execute('BEGIN IMMEDIATE')
-            if db.execute("SELECT 1 FROM meta WHERE key IN ('pause_requested','shutdown_requested') AND value='1'").fetchone():return False
-            job=db.execute("SELECT * FROM jobs WHERE state='pending' ORDER BY CASE WHEN origin='manual' THEN 0 ELSE 1 END,id LIMIT 1").fetchone()
+            if db.execute("SELECT 1 FROM meta WHERE key='shutdown_requested' AND value='1'").fetchone():return False
+            if not recovery_only and db.execute("SELECT 1 FROM meta WHERE key='pause_requested' AND value='1'").fetchone():return False
+            only=" AND kind='recovery_check' AND origin='manual'" if recovery_only else ''
+            job=db.execute("SELECT * FROM jobs WHERE state='pending'"+only+" ORDER BY CASE WHEN origin='manual' THEN 0 ELSE 1 END,id LIMIT 1").fetchone()
             if not job:return False
             db.execute("UPDATE jobs SET state='running',updated_at=? WHERE id=?",(now(),job['id']))
         self._active_job=dict(job)
@@ -981,7 +992,8 @@ class Workbench:
         payload={}
         try:
             payload=json.loads(job['payload'])
-            if job['kind']=='public_monitor':message=public_engagement.cycle(self)
+            if job['kind']=='recovery_check':message=recovery.run(self,payload.get('issue_id','all'))
+            elif job['kind']=='public_monitor':message=public_engagement.cycle(self)
             elif job['kind']=='public_scan':
                 message=self.scan();self.meta('public_scan_at',now())
                 if self.config()['public']['enabled'] and self.meta('pause_requested')!='1' and not self.stop.is_set():public_engagement.discover(self)
@@ -1001,6 +1013,7 @@ class Workbench:
             elif job['kind']=='sync_xhs':message=autopilot.sync_xhs(self)
             else:message=self.check()
             state='done'
+            if job['kind']=='recovery_check' and json.loads(self.meta('recovery_report') or '{}').get('status')=='needs_review':state='needs_review'
             if job['kind']=='public_monitor' and json.loads(self.meta('public_report') or '{}').get('status')=='needs_review':state='needs_review'
             if job['kind']=='publish' and self.draft(payload['draft_id'])['state'] in ('unknown','submitted_unverified'):state='needs_review'
             if job['kind']=='publish' and self.draft(payload['draft_id'])['state']=='blocked':state='needs_setup'
@@ -1039,6 +1052,7 @@ class Workbench:
 
     def tick(self):
         workflow.tick(self)
+        recovery.tick(self)
 
     def worker(self):
         self._worker_thread=threading.current_thread()
@@ -1048,7 +1062,7 @@ class Workbench:
                     self.stop.set()
                     break
                 if self.meta('pause_requested')=='1':
-                    self.stop.wait(1)
+                    if not self.run_one_job(recovery_only=True):self.stop.wait(1)
                     continue
                 self.tick()
                 if not self.run_one_job():self.stop.wait(3)
@@ -1158,6 +1172,8 @@ def make_handler(workbench):
                 elif path == '/api/control':
                     if payload.get('action') not in ('pause','resume'):raise ValueError('只支持暂停或继续')
                     workbench.meta('pause_requested','1' if payload['action']=='pause' else '0')
+                elif path == '/api/recovery-check':
+                    result['job_id']=recovery.request(workbench,payload.get('issue_id','all'))
                 elif path == '/api/queue-control':
                     result.update(workflow.job_control(workbench,payload.get('action'),payload.get('job_id')))
                 elif path == "/api/jobs":

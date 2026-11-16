@@ -156,11 +156,14 @@ def approve_pending(w):
 
 
 def current_xhs_account(w):
+    import recovery
+    initial_scope=recovery.scope(w,'account')
     login=w.xhs('/api/v1/login/status')
     if login.get('is_logged_in') is not True or not login.get('user_id'):raise SetupRequired('小红书需要真实登录且返回账号ID')
     user=str(login['user_id']);bound=w.meta('xhs_bound_user')
     if not bound:w.meta('xhs_bound_user',user)
     elif bound!=user:raise SetupRequired('小红书当前账号与绑定身份不同')
+    recovery.record_success(w,'account',initial_scope,'当前登录与绑定账号检查已通过')
     return user
 
 
@@ -175,7 +178,7 @@ def same_body(body,desc):
     return not suffix or bool(re.fullmatch(r'(?:'+topic+r'\s*)+',suffix))
 
 
-def sync_xhs(w):
+def sync_xhs(w,verify_only=False):
     from app import now
     account=current_xhs_account(w)
     profile=w.xhs('/api/v1/user/me').get('data')
@@ -208,7 +211,7 @@ def sync_xhs(w):
             updated=db.execute("UPDATE drafts SET state='published',public_url=?,receipt='自动回查：账号、标题、全文和提交时间相符；平台审核和可见性仍以实际为准',updated_at=? WHERE id=? AND state IN ('unknown','submitted_unverified') AND target_binding=?",(url,now(),row['id'],target))
             if updated.rowcount:
                 db.execute("UPDATE attempts SET state='confirmed_published' WHERE draft_id=? AND state IN ('unknown','submitted_unverified')",(row['id'],));resolved+=1
-    replies=reply_to_own_comments(w,account) if w.config()['autonomy']['enabled'] and w.config()['autonomy']['reply_to_own_comments'] else 0
+    replies=reply_to_own_comments(w,account) if not verify_only and w.config()['autonomy']['enabled'] and w.config()['autonomy']['reply_to_own_comments'] else 0
     return f'自动核对{resolved}条作品；回查确认{replies}条本人评论回复；未找到的作品保持待核对，不自动重发'
 
 
